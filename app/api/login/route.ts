@@ -13,7 +13,7 @@ function nowTimeStr() {
 // automatically — no separate "check in" button needed. Only fires once per
 // day per person: if they've already got a check-in today, logging in again
 // (e.g. from their phone later) doesn't overwrite the original time.
-function recordLoginAttendance(staffId: string) {
+async function recordLoginAttendance(staffId: string) {
   const attendance = readCollection('attendance') as AttendanceRecord[];
   const already = attendance.find(a => a.staffId === staffId && a.date === today());
   if (already) return;
@@ -21,7 +21,7 @@ function recordLoginAttendance(staffId: string) {
     id: `at_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     staffId, date: today(), checkIn: nowTimeStr(), checkOut: '', onApprovedLeave: false,
   });
-  writeCollection('attendance', attendance);
+  await writeCollection('attendance', attendance);
 }
 
 export async function POST(req: NextRequest) {
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This account is no longer active' }, { status: 401 });
     }
     clearAttempts(lockKey);
-    recordLoginAttendance(member.id);
+    await recordLoginAttendance(member.id);
     const token = createSessionToken({ type: 'employee', staffId: member.id });
     const res = NextResponse.json({ ok: true, session: { type: 'employee', staffId: member.id } });
     res.cookies.set(SESSION_COOKIE, token, {

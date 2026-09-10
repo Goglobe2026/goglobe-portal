@@ -117,6 +117,20 @@ export interface Loan {
   notes: string;
 }
 
+export interface ClientFeedback {
+  id: string;
+  caseReferenceCode: string;
+  clientName: string;
+  consultantId: string;
+  rating: number;
+  wouldRecommend: boolean;
+  moneyDemanded: boolean;
+  moneyDemandedDetails: string;
+  comment: string;
+  submittedAt: string;
+  reviewedByCeo: boolean;
+}
+
 export interface PersonalExpense {
   id: string;
   date: string;
@@ -163,6 +177,7 @@ export interface TeamMember {
   performanceCategory: 'Junior' | 'Standard' | 'Senior' | 'Top Performer';
   employmentStatus: 'Active' | 'On Leave' | 'Resigned' | 'Terminated';
   lastWorkingDay: string;
+  monthlyAllowance: number;
 }
 
 export interface Transaction {
@@ -278,6 +293,7 @@ export type Collections = {
   countrynotes: CountryNote[];
   loans: Loan[];
   personalexpenses: PersonalExpense[];
+  clientfeedback: ClientFeedback[];
 };
 
 export type CollectionName = keyof Collections;

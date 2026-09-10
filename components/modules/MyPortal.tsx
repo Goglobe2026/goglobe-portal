@@ -100,6 +100,7 @@ export function MyPortal() {
           <SectionHead title="My earnings" />
           <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
             <MiniMetric label="Base salary" value={money(t.salary)} />
+            {t.monthlyAllowance > 0 && <MiniMetric label="Monthly allowance" value={money(t.monthlyAllowance)} />}
             <MiniMetric label={`Commission (${t.commissionPercent}%)`} value={quotaMet ? money(commissionEarned) : `Locked`} note={quotaMet ? `${money(commissionPaid)} already paid` : `Close ${quota - closedThisMonth} more case${quota - closedThisMonth === 1 ? '' : 's'} this month to unlock`} />
             <MiniMetric label={`Bonus (${money(t.bonusPerClose)}/close)`} value={money(bonusEarned)} note={`${money(bonusPaid)} already paid`} />
           </div>
@@ -152,7 +153,8 @@ export function MyPortal() {
           <DepartmentSnapshot department={t.department} />
           {t.department === 'Management' && <ManagerReviewQueue />}
           <SectionHead title="My earnings" />
-          <div className="card" style={{ maxWidth: 280 }}><MiniMetric label="Base salary" value={money(t.salary)} /></div>
+          <div className="card" style={{ maxWidth: 280 }}><MiniMetric label="Base salary" value={money(t.salary)} />
+            {t.monthlyAllowance > 0 && <MiniMetric label="Monthly allowance" value={money(t.monthlyAllowance)} />}</div>
         </>
       )}
 

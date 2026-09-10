@@ -7,7 +7,7 @@ const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal')[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'ceopin', 'revenuegoal',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'ceopin', 'revenuegoal',
 ];
 const RAW_KEYS = ['ceopin', 'revenuegoal'];
 

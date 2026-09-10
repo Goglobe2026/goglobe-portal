@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
@@ -53,6 +53,7 @@ interface AppDataContextValue {
   countryNotes: CountryNote[]; setCountryNotes: (u: Updater<CountryNote[]>) => void;
   loans: Loan[]; setLoans: (u: Updater<Loan[]>) => void;
   personalExpenses: PersonalExpense[]; setPersonalExpenses: (u: Updater<PersonalExpense[]>) => void;
+  clientFeedback: ClientFeedback[]; setClientFeedback: (u: Updater<ClientFeedback[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   revenueGoal: string; setRevenueGoal: (u: Updater<string>) => void;
 
@@ -64,7 +65,7 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
-  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses',
+  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -92,6 +93,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const countryNotes = useSynced<CountryNote[]>('countrynotes', []);
   const loans = useSynced<Loan[]>('loans', []);
   const personalExpenses = useSynced<PersonalExpense[]>('personalexpenses', []);
+  const clientFeedback = useSynced<ClientFeedback[]>('clientfeedback', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const revenueGoal = useSynced<string>('revenuegoal', '10000000');
 
@@ -113,13 +115,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             fetch(`/api/data/${k}`).then(r => { if (!r.ok) throw new Error(`${k}: ${r.status}`); return r.json(); })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, pin, goal] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, pin, goal] = results;
         leads.setLocal(l); cases.setLocal(c); appointments.setLocal(a); team.setLocal(tm);
         transactions.setLocal(tx); campaigns.setLocal(cp); attendance.setLocal(att); rateCard.setLocal(rc);
         adjustments.setLocal(adj); bankAccounts.setLocal(bk); journalVouchers.setLocal(jv);
         requests.setLocal(req); activity.setLocal(act); testimonials.setLocal(tst); referralAgents.setLocal(ra);
         groupTours.setLocal(gt); tourMembers.setLocal(tmem); countryNotes.setLocal(cn);
-        loans.setLocal(ln); personalExpenses.setLocal(pe);
+        loans.setLocal(ln); personalExpenses.setLocal(pe); clientFeedback.setLocal(cf);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         revenueGoal.setLocal(typeof goal === 'string' ? goal : '10000000');
       } catch (e) {
@@ -154,6 +156,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     countryNotes: countryNotes.value, setCountryNotes: countryNotes.setAndSave,
     loans: loans.value, setLoans: loans.setAndSave,
     personalExpenses: personalExpenses.value, setPersonalExpenses: personalExpenses.setAndSave,
+    clientFeedback: clientFeedback.value, setClientFeedback: clientFeedback.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     revenueGoal: revenueGoal.value, setRevenueGoal: revenueGoal.setAndSave,
     logActivity,

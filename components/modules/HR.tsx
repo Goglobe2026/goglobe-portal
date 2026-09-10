@@ -9,7 +9,7 @@ import type { TeamMember } from '@/lib/types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 export function HR() {
-  const { team, requests, setRequests, cases, leads, transactions, attendance, setAttendance, logActivity } = useAppData();
+  const { team, requests, setRequests, cases, leads, transactions, attendance, setAttendance, clientFeedback, setClientFeedback, logActivity } = useAppData();
   const [formStaff, setFormStaff] = useState<TeamMember | 'new' | null>(null);
   const [pinReveal, setPinReveal] = useState<{ name: string; pin: string } | null>(null);
   const [adjustFor, setAdjustFor] = useState<{ staff: TeamMember; type: 'Bonus' | 'Fine' } | null>(null);
@@ -109,6 +109,47 @@ export function HR() {
               );
             })}
             {!requests.length && <tr><td colSpan={6} className="text-[var(--muted)] p-3.5">No requests submitted yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <SectionHead title="Client feedback" count={`${clientFeedback.length} received${clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length ? ` — ${clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length} need urgent attention` : ''}`} />
+      {clientFeedback.filter(f => f.moneyDemanded).length > 0 && (
+        <div className="card mb-3.5" style={{ background: 'var(--red-50)', border: '1px solid var(--red)' }}>
+          <div className="text-[13px] font-semibold mb-2" style={{ color: 'var(--red)' }}>⚠ Client(s) reported being asked for money beyond the official invoice</div>
+          {clientFeedback.filter(f => f.moneyDemanded).map(f => {
+            const emp = team.find(t => t.id === f.consultantId);
+            return (
+              <div key={f.id} className="py-2 border-t first:border-0" style={{ borderColor: 'rgba(0,0,0,.08)' }}>
+                <div className="text-[13px]"><b>{f.clientName}</b> ({f.caseReferenceCode}) — consultant: <b>{emp?.name || 'Unknown'}</b></div>
+                {f.moneyDemandedDetails && <div className="text-[12.5px] mt-1" style={{ color: '#6b1010' }}>&quot;{f.moneyDemandedDetails}&quot;</div>}
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="font-mono-ui text-[10.5px] text-[var(--faint)]">{fmtDate(f.submittedAt)}</span>
+                  {!f.reviewedByCeo && <button className="btn btn-sm" onClick={() => setClientFeedback(prev => prev.map(x => x.id === f.id ? { ...x, reviewedByCeo: true } : x))}>Mark reviewed</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="card p-0 overflow-auto mb-4">
+        <table>
+          <thead><tr><th>Client</th><th>Consultant</th><th>Rating</th><th>Recommend?</th><th>Comment</th><th>Date</th></tr></thead>
+          <tbody>
+            {[...clientFeedback].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).map(f => {
+              const emp = team.find(t => t.id === f.consultantId);
+              return (
+                <tr key={f.id}>
+                  <td className="font-medium">{f.clientName}</td>
+                  <td>{emp?.name || '—'}</td>
+                  <td style={{ color: 'var(--gold)' }}>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</td>
+                  <td>{f.wouldRecommend ? 'Yes' : 'No'}</td>
+                  <td className="text-[12.5px]">{f.comment || '—'}</td>
+                  <td className="font-mono-ui text-xs">{fmtDate(f.submittedAt)}</td>
+                </tr>
+              );
+            })}
+            {!clientFeedback.length && <tr><td colSpan={6} className="text-[var(--muted)] p-3.5">No client feedback received yet — clients can leave feedback from their case status page.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -232,9 +273,10 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
   const fineTotal = myAdj.filter(a => a.type === 'Fine').reduce((s, a) => s + a.amount, 0);
 
   function paySalary() {
-    setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Salary', party: t.name, amount: t.salary, note: 'Monthly salary' }]);
+    const total = t.salary + (t.monthlyAllowance || 0);
+    setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Salary', party: t.name, amount: total, note: t.monthlyAllowance ? `Monthly salary + allowance (${money(t.salary)} + ${money(t.monthlyAllowance)})` : 'Monthly salary' }]);
     setTeam(prev => prev.map(x => x.id === t.id ? { ...x, lastSalaryPaid: today() } : x));
-    logActivity(`Salary paid — ${t.name}, ${money(t.salary)}`);
+    logActivity(`Salary paid — ${t.name}, ${money(total)}`);
     toast('Salary recorded');
   }
   function payCommission() {
@@ -266,6 +308,7 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
       )}
       <div className="pt-2.5 border-t" style={{ borderColor: 'var(--line)' }}>
         <Row label="Base salary" value={money(t.salary)} />
+        {t.monthlyAllowance > 0 && <Row label="Monthly allowance" value={money(t.monthlyAllowance)} />}
         {isSales && <>
           <Row label={`This month's quota (${quota})`} value={`${closedThisMonth}/${quota} closed`} />
           <Row label="Commission due" value={quotaMet ? money(commissionDue) : `Locked — ${quota - closedThisMonth} more to unlock`} />
@@ -312,6 +355,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   const [performanceCategory, setPerformanceCategory] = useState<TeamMember['performanceCategory']>(t?.performanceCategory || 'Standard');
   const [employmentStatus, setEmploymentStatus] = useState<TeamMember['employmentStatus']>(t?.employmentStatus || 'Active');
   const [lastWorkingDay, setLastWorkingDay] = useState(t?.lastWorkingDay || '');
+  const [monthlyAllowance, setMonthlyAllowance] = useState(t?.monthlyAllowance || 0);
 
   function save() {
     if (!name.trim()) { toast('Enter a name'); return; }
@@ -319,7 +363,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
       id: t?.id || `tm_${Date.now().toString(36)}`, name, phone, email, department, role: role || 'Staff',
       education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
       salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
-      monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay,
+      monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay, monthlyAllowance,
     };
     if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
     else setTeam(prev => [...prev, data]);
@@ -388,7 +432,11 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
         <Field label="Shift start"><input type="time" value={shiftStart} onChange={e => setShiftStart(e.target.value)} /></Field>
         <Field label="Shift end"><input type="time" value={shiftEnd} onChange={e => setShiftEnd(e.target.value)} /></Field>
       </div>
-      <Field label="Monthly base salary (PKR)"><input type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Monthly base salary (PKR)"><input type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} /></Field>
+        <Field label="Monthly allowance (PKR)"><input type="number" value={monthlyAllowance} onChange={e => setMonthlyAllowance(Number(e.target.value))} /></Field>
+      </div>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">Transport, communication, or any other fixed monthly amount — paid alongside salary, kept separate so it's clear what's base pay.</div>
       {department === 'Sales' && (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Commission (%)"><input type="number" value={commissionPercent} onChange={e => setCommissionPercent(Number(e.target.value))} /></Field>

@@ -1,5 +1,6 @@
 import { getCaseStatusData } from '@/lib/case-verify';
 import { LOGO_FULL } from '@/lib/logo';
+import { FeedbackForm } from '@/components/ui/FeedbackForm';
 
 const STAGES = ['Assessment', 'Documents', 'Manager Review', 'Appointment Booking', 'Submitted', 'Interview', 'Decision'];
 
@@ -71,6 +72,8 @@ export default async function CaseStatusPage({ params }: { params: Promise<{ cod
               <div className="text-[12px] text-[var(--muted)]">{data.documentsVerified} of {data.documentsTotal} documents verified</div>
             </div>
           )}
+
+          <FeedbackForm referenceCode={data.referenceCode} />
 
           <div className="mt-6 pt-4 border-t text-center" style={{ borderColor: 'var(--line)' }}>
             <p className="text-[11px] text-[var(--faint)] mb-1">© {new Date().getFullYear()} GoGlobe Consultant. Private case status portal.</p>

@@ -1,48 +1,91 @@
 /**
- * GoGlobe Lead Sync — pushes new rows from this Google Sheet into the
- * GoGlobe Ops portal automatically, every 5 minutes.
+ * GoGlobe Lead Sync — pushes new rows from your Facebook/Instagram Lead
+ * Ads export sheet into the GoGlobe Ops portal automatically, every 5
+ * minutes. Written to match your actual sheet's real column headers
+ * ("full_name", "phone_number", "please_select_desired_country_?", etc.)
+ * — the ones from your Facebook Lead Ads form, not a generic guess.
  *
  * SETUP (do this once):
  * 1. Open your Google Sheet.
  * 2. Extensions -> Apps Script. Delete anything in the editor and paste
  *    this whole file in.
- * 3. Edit the CONFIG section right below — set PORTAL_URL to your real
- *    deployed address, and make COLUMN_MAP match your sheet's actual
- *    column headers exactly (case matters).
+ * 3. Set PORTAL_URL below to your real deployed address.
  * 4. In the toolbar, select the function dropdown, choose "createTrigger",
- *    and click Run once. Google will ask you to authorize the script the
- *    first time — this is normal; it's just your own script talking to
- *    your own portal, nothing else can see this.
- * 5. Done. From now on, any new row gets checked every 5 minutes and sent
- *    automatically. A "Portal Status" column appears on the right side of
- *    your sheet showing "Synced ..." or "Failed ..." for every row, so your
- *    team can see at a glance whether it worked.
+ *    and click Run once. Google will ask to authorize — that's normal,
+ *    it's just your own script talking to your own portal.
+ * 5. Done. Every new row gets checked every 5 minutes and sent
+ *    automatically. A "Portal Status" column appears showing "Synced ..."
+ *    or "Failed ..." for every row.
+ *
+ * IMPORTANT — read this once:
+ * Your sheet has columns like "Lead Status", "Assigned Consultant", and
+ * "Deal Value" that your team has been filling in by hand. This script
+ * does NOT read or sync those — once a lead is in the portal, all of
+ * that tracking (stage, who it's assigned to, follow-ups) should happen
+ * INSIDE the portal from then on, not in this sheet. Otherwise you end
+ * up with two different places showing two different statuses for the
+ * same client, and nobody knows which one is true. Think of this sheet
+ * as the intake point only — the portal is where the real work happens
+ * after that.
  */
 
 // ====================== CONFIGURATION ======================
 
-// Replace with your real deployed address once you've completed deployment.
-// It must end in /api/leads exactly like this.
 const PORTAL_URL = 'https://YOUR-DEPLOYED-URL.onrender.com/api/leads';
 
-// What every new lead from this sheet is tagged as inside the portal.
-// Change to whatever makes sense — e.g. 'Facebook' if this sheet only
-// ever holds Facebook Lead Ads submissions.
-const LEAD_SOURCE = 'Facebook';
-
-// Map each portal field to the EXACT header text used in row 1 of your
-// sheet. Only "name" and "phone" are required — leave the others as ''
-// (empty string) if your sheet doesn't have that column.
+// Your sheet's exact real column headers (from row 1), matched already —
+// you shouldn't need to touch this section unless Facebook changes your
+// form's field names.
 const COLUMN_MAP = {
-  name: 'Full Name',
-  phone: 'Phone Number',
-  destination: 'Country',        // which country/visa they're asking about — optional
-  visaType: 'Visa Type',          // optional
-  message: 'Message',             // optional, any free-text query
-  campaign: 'Campaign Name',      // optional — which Facebook ad this lead came from
+  name: 'full_name',
+  phone: 'phone_number',
+  email: 'email',
+  country: 'please_select_desired_country_?',
+  travelHistory: 'do_you_have_any_travel_history_before_?',
+  platform: 'platform',           // fb / ig
+  campaign: 'campaign_name',
+  city: 'city',
+  createdTime: 'created_time',
 };
 
-// This column gets created automatically — don't need to add it yourself.
+// Maps whatever country name your form collects to the destination
+// categories your portal actually uses. Schengen-area countries all
+// bucket into "Schengen" since that's how your rate card is organised.
+// Add more lines here any time your ad targets a new country.
+const COUNTRY_MAP = {
+  'uk': 'UK', 'united kingdom': 'UK',
+  'usa': 'USA', 'us': 'USA', 'united states': 'USA',
+  'canada': 'Canada',
+  'australia': 'Australia',
+  'schengen': 'Schengen', 'belgium': 'Schengen', 'spain': 'Schengen',
+  'switzerland': 'Schengen', 'norway': 'Schengen', 'france': 'Schengen',
+  'germany': 'Schengen', 'italy': 'Schengen', 'netherlands': 'Schengen',
+  'turkiye': 'Türkiye', 'turkey': 'Türkiye',
+  'new zealand': 'New Zealand', 'nz': 'New Zealand',
+  'uae': 'UAE', 'dubai': 'UAE',
+  'saudi arabia': 'Saudi Arabia', 'ksa': 'Saudi Arabia', 'saudi': 'Saudi Arabia',
+  'azerbaijan': 'Azerbaijan',
+  'morocco': 'Morocco',
+  'malaysia': 'Malaysia',
+};
+
+function normalizeCountry(raw) {
+  const first = String(raw || '').split('|')[0].trim().toLowerCase();
+  return COUNTRY_MAP[first] || (first ? first.charAt(0).toUpperCase() + first.slice(1) : '');
+}
+
+function normalizePlatform(raw) {
+  const p = String(raw || '').trim().toLowerCase();
+  if (p === 'fb' || p === 'facebook') return 'Facebook';
+  if (p === 'ig' || p === 'instagram') return 'Instagram';
+  return 'Facebook'; // sensible default for this form
+}
+
+function normalizePhone(raw) {
+  // Strips a leading "p:" that Facebook's export adds, e.g. "p:+923127391451"
+  return String(raw || '').replace(/^p:/i, '').trim();
+}
+
 const STATUS_COLUMN = 'Portal Status';
 
 // =================== END OF CONFIGURATION ===================
@@ -50,7 +93,7 @@ const STATUS_COLUMN = 'Portal Status';
 function syncLeadsToPortal() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return; // header row only, nothing to sync yet
+  if (data.length < 2) return;
 
   const headers = data[0];
   let statusColIndex = headers.indexOf(STATUS_COLUMN);
@@ -59,36 +102,41 @@ function syncLeadsToPortal() {
     statusColIndex = headers.length;
   }
 
-  const nameIdx = headers.indexOf(COLUMN_MAP.name);
-  const phoneIdx = headers.indexOf(COLUMN_MAP.phone);
-  const destIdx = COLUMN_MAP.destination ? headers.indexOf(COLUMN_MAP.destination) : -1;
-  const visaIdx = COLUMN_MAP.visaType ? headers.indexOf(COLUMN_MAP.visaType) : -1;
-  const msgIdx = COLUMN_MAP.message ? headers.indexOf(COLUMN_MAP.message) : -1;
-  const campaignIdx = COLUMN_MAP.campaign ? headers.indexOf(COLUMN_MAP.campaign) : -1;
+  const idx = {};
+  for (const key in COLUMN_MAP) idx[key] = headers.indexOf(COLUMN_MAP[key]);
 
-  if (nameIdx === -1 || phoneIdx === -1) {
-    Logger.log('STOPPED: could not find your Name or Phone column. Check that COLUMN_MAP.name and COLUMN_MAP.phone exactly match the header text in row 1 of your sheet (including capitalization).');
+  if (idx.name === -1 || idx.phone === -1) {
+    Logger.log('STOPPED: could not find the "' + COLUMN_MAP.name + '" or "' + COLUMN_MAP.phone + '" column. Check row 1 of your sheet still has these exact headers.');
     return;
   }
 
   let sentCount = 0;
 
   for (let row = 1; row < data.length; row++) {
-    const alreadyProcessed = data[row][statusColIndex];
-    if (alreadyProcessed) continue;
+    if (data[row][statusColIndex]) continue; // already processed
 
-    const name = data[row][nameIdx];
-    const phone = data[row][phoneIdx];
-    if (!name || !phone) continue; // incomplete row — leave unmarked, will retry next run in case it gets filled in
+    const name = data[row][idx.name];
+    const phone = normalizePhone(data[row][idx.phone]);
+    if (!name || !phone) continue; // incomplete row — retry next run in case it fills in
+
+    const rawCountry = idx.country > -1 ? String(data[row][idx.country] || '') : '';
+    const allCountries = rawCountry.split('|').map(s => s.trim()).filter(Boolean);
+    const primaryDestination = normalizeCountry(rawCountry);
+
+    const noteParts = [];
+    if (idx.email > -1 && data[row][idx.email]) noteParts.push('Email: ' + data[row][idx.email]);
+    if (idx.city > -1 && data[row][idx.city]) noteParts.push('City: ' + data[row][idx.city]);
+    if (idx.travelHistory > -1 && data[row][idx.travelHistory]) noteParts.push('Travel history: ' + data[row][idx.travelHistory]);
+    if (allCountries.length > 1) noteParts.push('Also mentioned: ' + allCountries.slice(1).join(', '));
 
     const payload = {
       name: String(name),
-      phone: String(phone),
-      destination: destIdx > -1 ? String(data[row][destIdx] || '') : '',
-      visaType: visaIdx > -1 ? String(data[row][visaIdx] || '') : '',
-      message: msgIdx > -1 ? String(data[row][msgIdx] || '') : '',
-      source: LEAD_SOURCE,
-      campaign: campaignIdx > -1 ? String(data[row][campaignIdx] || '') : '',
+      phone: phone,
+      destination: primaryDestination,
+      visaType: '',
+      message: noteParts.join(' · '),
+      source: idx.platform > -1 ? normalizePlatform(data[row][idx.platform]) : 'Facebook',
+      campaign: idx.campaign > -1 ? String(data[row][idx.campaign] || '') : '',
     };
 
     try {
@@ -113,11 +161,7 @@ function syncLeadsToPortal() {
   if (sentCount > 0) Logger.log('Synced ' + sentCount + ' new lead(s) to the portal.');
 }
 
-// Run this ONCE from the function dropdown to turn on automatic syncing
-// every 5 minutes. You never need to run it again after that.
 function createTrigger() {
-  // Remove any existing sync triggers first, so running this twice
-  // doesn't create duplicates that would send every lead multiple times.
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(t => {
     if (t.getHandlerFunction() === 'syncLeadsToPortal') ScriptApp.deleteTrigger(t);
