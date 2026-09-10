@@ -46,6 +46,20 @@ export function Reports() {
   const totalDiscounts = discountedCases.reduce((s, c) => s + c.discount, 0);
 
   const sales = team.filter(t => t.department === 'Sales');
+
+  const ACTIVE_STAGES = ['New', 'Contacted', 'Qualified'] as const;
+  const stageAging = ACTIVE_STAGES.map(stage => {
+    const stageLeads = leads.filter(l => l.stage === stage);
+    const ages = stageLeads.map(l => Math.max(0, Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000)));
+    const avgAge = ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0;
+    const oldest = stageLeads.reduce((old: typeof stageLeads[0] | null, l) =>
+      (!old || l.createdAt < old.createdAt) ? l : old, null);
+    return { stage, count: stageLeads.length, avgAge, oldest };
+  });
+  const staleLeads = leads.filter(l =>
+    (['New', 'Contacted', 'Qualified'] as string[]).includes(l.stage) &&
+    Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000) >= 7
+  ).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const sow = startOfWeek();
   const weeklyData = sales.map(t => ({
     name: t.name,
@@ -113,6 +127,49 @@ export function Reports() {
           </table>
         </div>
       </div>
+
+      <SectionHead title="Lead pipeline aging" count="how many leads are stuck at each stage, and for how long" />
+      <div className="grid grid-cols-2 gap-3.5 mb-2 max-md:grid-cols-1">
+        <div className="card" style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stageAging.map(s => ({ name: s.stage, days: s.avgAge }))}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'avg days', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+              <Tooltip />
+              <Bar dataKey="days" name="Average days waiting" fill="var(--gold)" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="card p-0 overflow-auto">
+          <table>
+            <thead><tr><th>Stage</th><th>Leads</th><th>Avg. age</th><th>Oldest</th></tr></thead>
+            <tbody>
+              {stageAging.map(s => (
+                <tr key={s.stage}>
+                  <td className="font-medium">{s.stage}</td>
+                  <td className="font-mono-ui text-xs">{s.count}</td>
+                  <td className="font-mono-ui text-xs" style={{ color: s.avgAge >= 7 ? 'var(--red)' : s.avgAge >= 3 ? 'var(--gold)' : 'var(--green)' }}>{s.avgAge} days</td>
+                  <td className="text-[12px]">{s.oldest ? `${s.oldest.name} (${Math.floor((Date.now() - new Date(s.oldest.createdAt).getTime()) / 86400000)}d)` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {staleLeads.length > 0 && (
+        <div className="card mb-2" style={{ background: 'var(--red-50)' }}>
+          <div className="text-[12.5px] font-medium mb-1.5" style={{ color: 'var(--red)' }}>{staleLeads.length} lead{staleLeads.length > 1 ? 's have' : ' has'} been sitting a week or more without moving forward</div>
+          <div className="flex flex-wrap gap-2">
+            {staleLeads.slice(0, 8).map(l => (
+              <span key={l.id} className="text-[11.5px] px-2 py-1 rounded-full" style={{ background: '#fff', border: '1px solid var(--red)', color: 'var(--red)' }}>
+                {l.name} — {Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000)}d in {l.stage}
+              </span>
+            ))}
+            {staleLeads.length > 8 && <span className="text-[11.5px] text-[var(--faint)] self-center">+{staleLeads.length - 8} more</span>}
+          </div>
+        </div>
+      )}
 
       <SectionHead title="Weekly performance comparison" count="this week (Mon–today), all sales staff" />
       <div className="card" style={{ height: 220 }}>

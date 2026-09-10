@@ -2,7 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import type { Collections, CollectionName } from './types';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// On Render, the persistent disk is mounted at exactly /data — that's the
+// only location that survives a full rebuild. Using anything computed from
+// process.cwd() (the app's own code directory) silently writes to a folder
+// that looks like it works, but isn't actually the protected disk. This
+// checks for the real mount first, and only falls back to a local ./data
+// folder when there's no mounted disk at all (e.g. running locally).
+const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const writeQueues: Record<string, Promise<void>> = {};

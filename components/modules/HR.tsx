@@ -9,11 +9,35 @@ import type { TeamMember } from '@/lib/types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 export function HR() {
-  const { team, requests, setRequests, cases, leads, transactions, logActivity } = useAppData();
+  const { team, requests, setRequests, cases, leads, transactions, attendance, setAttendance, logActivity } = useAppData();
   const [formStaff, setFormStaff] = useState<TeamMember | 'new' | null>(null);
   const [pinReveal, setPinReveal] = useState<{ name: string; pin: string } | null>(null);
   const [adjustFor, setAdjustFor] = useState<{ staff: TeamMember; type: 'Bonus' | 'Fine' } | null>(null);
   const toast = useToast();
+
+  function approveRequest(r: typeof requests[0]) {
+    const emp = team.find(t => t.id === r.staffId);
+    setRequests(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Approved' } : x));
+    logActivity(`Approved request from ${emp?.name} (${r.type})`);
+    // For approved leave with dates, mark each day so it doesn't look like an
+    // unexplained absence — a day covered here is never flagged for a fine.
+    if (r.type === 'Leave' && r.leaveStartDate && r.leaveEndDate) {
+      const start = new Date(r.leaveStartDate);
+      const end = new Date(r.leaveEndDate);
+      const newEntries: typeof attendance = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().slice(0, 10);
+        const already = attendance.find(a => a.staffId === r.staffId && a.date === dateStr);
+        if (!already) {
+          newEntries.push({ id: genId('at'), staffId: r.staffId, date: dateStr, checkIn: '', checkOut: '', onApprovedLeave: true });
+        }
+      }
+      if (newEntries.length) {
+        setAttendance(prev => [...prev, ...newEntries]);
+        toast(`Approved — marked ${newEntries.length} day(s) as on leave`);
+      }
+    }
+  }
 
   const depts = DEPARTMENTS.filter(d => team.some(t => t.department === d));
   const sales = team.filter(t => t.department === 'Sales');
@@ -31,13 +55,19 @@ export function HR() {
       } />
       <div className="card p-0 overflow-auto">
         <table>
-          <thead><tr><th>Name</th><th>Post / designation</th><th>Department</th><th>Contract</th><th>Contact</th><th>PIN</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Post / designation</th><th>Department</th><th>Category</th><th>Contract</th><th>Contact</th><th>PIN</th><th></th></tr></thead>
           <tbody>
             {team.map(t => (
-              <tr key={t.id}>
-                <td className="font-medium">{t.name}<div className="font-mono-ui text-xs">{t.employeeId}</div></td>
+              <tr key={t.id} style={t.employmentStatus && t.employmentStatus !== 'Active' && t.employmentStatus !== 'On Leave' ? { opacity: 0.55 } : undefined}>
+                <td className="font-medium">
+                  {t.name}<div className="font-mono-ui text-xs">{t.employeeId}</div>
+                  {t.employmentStatus && t.employmentStatus !== 'Active' && (
+                    <div className="mt-0.5"><Stamp text={t.employmentStatus} /></div>
+                  )}
+                </td>
                 <td>{t.role}</td>
                 <td><Stamp text={t.department} /></td>
+                <td className="text-[12px]" style={{ color: t.performanceCategory === 'Top Performer' ? 'var(--gold)' : 'var(--muted)', fontWeight: t.performanceCategory === 'Top Performer' ? 600 : 400 }}>{t.performanceCategory || 'Standard'}</td>
                 <td className="text-[12px]">{t.contractType}<div className="font-mono-ui text-[10.5px]">{fmtDate(t.contractStart)}{t.contractEnd ? ` – ${fmtDate(t.contractEnd)}` : ' – ongoing'}</div></td>
                 <td className="font-mono-ui text-[11.5px]">{t.phone}<br />{t.email}</td>
                 <td className="font-mono-ui">{t.pin}</td>
@@ -70,7 +100,7 @@ export function HR() {
                   <td>
                     {r.status === 'Pending' && (
                       <div className="flex gap-1.5 justify-end">
-                        <button className="btn btn-sm" onClick={() => { setRequests(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Approved' } : x)); logActivity(`Approved request from ${emp?.name} (${r.type})`); }}>Approve</button>
+                        <button className="btn btn-sm" onClick={() => approveRequest(r)}>Approve</button>
                         <button className="btn btn-sm btn-ghost btn-danger" onClick={() => { setRequests(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Rejected' } : x)); logActivity(`Rejected request from ${emp?.name} (${r.type})`); }}>Reject</button>
                       </div>
                     )}
@@ -190,6 +220,10 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
   const commissionEarned = Math.round(revenue * (t.commissionPercent / 100));
   const commissionPaid = transactions.filter(x => x.category === 'Commission' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
   const commissionDue = Math.max(0, commissionEarned - commissionPaid);
+  const thisMonth = today().slice(0, 7);
+  const closedThisMonth = myCases.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === thisMonth).length;
+  const quota = t.monthlyQuota || 5;
+  const quotaMet = closedThisMonth >= quota;
   const bonusEarned = won * t.bonusPerClose;
   const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
   const bonusDue = Math.max(0, bonusEarned - bonusPaid);
@@ -233,13 +267,14 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
       <div className="pt-2.5 border-t" style={{ borderColor: 'var(--line)' }}>
         <Row label="Base salary" value={money(t.salary)} />
         {isSales && <>
-          <Row label="Commission due" value={money(commissionDue)} />
+          <Row label={`This month's quota (${quota})`} value={`${closedThisMonth}/${quota} closed`} />
+          <Row label="Commission due" value={quotaMet ? money(commissionDue) : `Locked — ${quota - closedThisMonth} more to unlock`} />
           <Row label="Bonus due" value={money(bonusDue)} />
         </>}
         {(apprTotal || fineTotal) ? <Row label="Appreciation / fines" value={`+${money(apprTotal)} / -${money(fineTotal)}`} last /> : null}
         <div className="flex gap-2 flex-wrap mt-2.5">
           <button className="btn btn-sm flex-1" onClick={paySalary}>Pay salary</button>
-          {isSales && commissionDue > 0 && <button className="btn btn-sm flex-1" onClick={payCommission}>Pay commission</button>}
+          {isSales && quotaMet && commissionDue > 0 && <button className="btn btn-sm flex-1" onClick={payCommission}>Pay commission</button>}
           {isSales && bonusDue > 0 && <button className="btn btn-sm flex-1" onClick={payBonus}>Pay bonus</button>}
         </div>
         <div className="flex gap-2 mt-2">
@@ -273,6 +308,10 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   const [jobDescription, setJobDescription] = useState(t?.jobDescription || '');
   const [employeeId, setEmployeeId] = useState(t?.employeeId || `GG-${String(team.length + 1).padStart(3, '0')}`);
   const [pin, setPin] = useState(t?.pin || String(1000 + team.length + 1));
+  const [monthlyQuota, setMonthlyQuota] = useState(t?.monthlyQuota ?? 5);
+  const [performanceCategory, setPerformanceCategory] = useState<TeamMember['performanceCategory']>(t?.performanceCategory || 'Standard');
+  const [employmentStatus, setEmploymentStatus] = useState<TeamMember['employmentStatus']>(t?.employmentStatus || 'Active');
+  const [lastWorkingDay, setLastWorkingDay] = useState(t?.lastWorkingDay || '');
 
   function save() {
     if (!name.trim()) { toast('Enter a name'); return; }
@@ -280,6 +319,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
       id: t?.id || `tm_${Date.now().toString(36)}`, name, phone, email, department, role: role || 'Staff',
       education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
       salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
+      monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay,
     };
     if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
     else setTeam(prev => [...prev, data]);
@@ -290,6 +330,28 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   return (
     <>
       <ModalTitle>{t ? `Employee profile — ${t.name}` : 'Add new employee'}</ModalTitle>
+      {t && (
+        <>
+          <SectionHead title="Employment status" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Status">
+              <select value={employmentStatus} onChange={e => setEmploymentStatus(e.target.value as TeamMember['employmentStatus'])}>
+                {(['Active', 'On Leave', 'Resigned', 'Terminated'] as const).map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            {employmentStatus !== 'Active' && employmentStatus !== 'On Leave' && (
+              <Field label="Last working day"><input type="date" value={lastWorkingDay} onChange={e => setLastWorkingDay(e.target.value)} /></Field>
+            )}
+          </div>
+          {employmentStatus !== 'Active' && (
+            <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">
+              {employmentStatus === 'On Leave'
+                ? "They're temporarily unavailable — hidden from new lead/case assignment, but can still log in."
+                : "Their full history (cases, payments, attendance) stays exactly as it is — they just can no longer log in, and won't show up when assigning new work."}
+            </div>
+          )}
+        </>
+      )}
       <SectionHead title="Personal & contact details" />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} /></Field>
@@ -333,6 +395,16 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
           <Field label="Bonus per closed case (PKR)"><input type="number" value={bonusPerClose} onChange={e => setBonusPerClose(Number(e.target.value))} /></Field>
         </div>
       )}
+      {department === 'Sales' && (
+        <Field label="Monthly case quota before commission unlocks">
+          <input type="number" value={monthlyQuota} onChange={e => setMonthlyQuota(Number(e.target.value))} />
+        </Field>
+      )}
+      <Field label="Performance category">
+        <select value={performanceCategory} onChange={e => setPerformanceCategory(e.target.value as TeamMember['performanceCategory'])}>
+          {(['Junior', 'Standard', 'Senior', 'Top Performer'] as const).map(c => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
       <Field label="Job description (optional)"><textarea rows={2} value={jobDescription} onChange={e => setJobDescription(e.target.value)} /></Field>
 
       <SectionHead title="Portal account" />

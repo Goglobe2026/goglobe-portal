@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today } from '@/lib/constants';
 import { overallCharge, overallPaid } from './Cases';
+import { exportToCsv } from '@/lib/csv';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 
@@ -45,7 +46,12 @@ export function Accounts() {
       </div>
 
       <SectionHead title="Ledger" count={`${transactions.length} entries`} action={
-        <button className="btn btn-sm ml-auto" onClick={() => setShowExpense(true)}>+ Add expense</button>
+        <div className="flex gap-2 ml-auto">
+          <button className="btn btn-sm" onClick={() => exportToCsv('goglobe-ledger', transactions.map(t => ({
+            Date: t.date, Type: t.type, Category: t.category, Party: t.party, Amount: t.amount, Note: t.note,
+          })))}>Export CSV</button>
+          <button className="btn btn-sm" onClick={() => setShowExpense(true)}>+ Add expense</button>
+        </div>
       } />
       <div className="card p-0 overflow-auto">
         <table>

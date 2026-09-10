@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, genId, today, getDocTemplate, DEFAULT_RATES } from '@/lib/constants';
+import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, genId, today, getDocTemplate, DEFAULT_RATES, fmtDate } from '@/lib/constants';
+import { exportToCsv } from '@/lib/csv';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { Case, DocItem, Lead } from '@/lib/types';
@@ -27,11 +28,23 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
   if (prefillFromLead && !showNew) { setShowNew(true); }
 
   function remove(id: string) { setCases(prev => prev.filter(c => c.id !== id)); toast('Case deleted'); }
+  function exportCases() {
+    exportToCsv('goglobe-cases', cases.map(c => ({
+      Client: c.name, Phone: c.phone, Destination: c.destination, 'Visa Type': c.visaType,
+      Consultant: consultantName(c.consultant), 'Case Stage': c.caseStage, Status: c.status,
+      'Overall Charge': overallCharge(c), 'Overall Paid': overallPaid(c), Discount: c.discount,
+      'Documents Verified': `${c.documents.filter(d => d.status === 'Verified').length}/${c.documents.length}`,
+      Created: c.createdAt,
+    })));
+  }
 
   return (
     <div>
       <SectionHead title="All cases" count={`${cases.length} total`} action={
-        <button className="btn btn-primary ml-auto" onClick={() => setShowNew(true)}>+ Add case</button>
+        <div className="flex gap-2 ml-auto">
+          <button className="btn" onClick={exportCases}>Export CSV</button>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ Add case</button>
+        </div>
       } />
       {!cases.length ? (
         <EmptyState title="No cases yet" body="Convert a lead, or add a case directly." />
@@ -103,8 +116,15 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
   );
 }
 
+function genCaseRefCode(existingCases: { referenceCode?: string }[]) {
+  const year = new Date().getFullYear();
+  const prefix = `GG-C-${year}`;
+  const count = existingCases.filter(c => c.referenceCode && c.referenceCode.startsWith(prefix)).length + 1;
+  return `${prefix}-${String(count).padStart(4, '0')}`;
+}
+
 function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; onClose: () => void; onCreated: (leadId: string | null) => void }) {
-  const { setCases, rateCard, team, logActivity } = useAppData();
+  const { cases, setCases, rateCard, team, logActivity } = useAppData();
   const toast = useToast();
   const [name, setName] = useState(fromLead?.name || ''); const [phone, setPhone] = useState(fromLead?.phone || '');
   const [dest, setDest] = useState(fromLead?.destination || DESTINATIONS[0]);
@@ -112,7 +132,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
   const [consultant, setConsultant] = useState(fromLead?.assignedTo || team[0]?.id || '');
   const rate = getRate(rateCard, dest, visaType);
   const [fee, setFee] = useState(rate.visaFee); const [apptFee, setApptFee] = useState(rate.apptFee); const [consultFee, setConsultFee] = useState(rate.consultFee);
-  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department));
+  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
 
   function changeDest(d: string) {
     setDest(d);
@@ -127,7 +147,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
   function save() {
     if (!name.trim()) { toast('Enter a client name'); return; }
     setCases(prev => [...prev, {
-      id: genId('cs'), name, phone, destination: dest, visaType, consultant, caseStage: 'Assessment', status: 'Active',
+      id: genId('cs'), referenceCode: genCaseRefCode(cases), name, phone, destination: dest, visaType, consultant, caseStage: 'Assessment', status: 'Active',
       fee, paid: 0, apptFee, apptPaid: 0, consultFee, consultPaid: 0, discount: 0, discountReason: '',
       costToExecute: 0, referralAgentId: '', referralCommissionPercent: 0, referralCommissionPaid: 0,
       createdAt: today(), documents: getDocTemplate(dest, visaType), coverLetterChecked: false, managerApproved: false,
@@ -178,7 +198,7 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
   const [costToExecute, setCostToExecute] = useState(c.costToExecute || 0);
   const [referralAgentId, setReferralAgentId] = useState(c.referralAgentId || '');
   const [referralCommissionPercent, setReferralCommissionPercent] = useState(c.referralCommissionPercent || 0);
-  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department));
+  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
 
   const docs = c.documents;
   const verifiedCount = docs.filter(d => d.status === 'Verified').length;
@@ -235,7 +255,13 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
         <h3 className="font-display text-[17px] m-0">{c.name}</h3>
         <Stamp text={c.status} />
       </div>
-      <div className="text-[12.5px] text-[var(--muted)] mb-4.5">{c.destination} · {c.visaType} visa · Case ID {c.id}</div>
+      <div className="text-[12.5px] text-[var(--muted)] mb-2">{c.destination} · {c.visaType} visa · Reference {c.referenceCode || '—'}</div>
+      {c.referenceCode && (
+        <div className="text-[12px] mb-4.5">
+          <a href={`/case-status/${c.referenceCode}`} target="_blank" className="font-medium" style={{ color: 'var(--navy)' }}>View client status page ↗</a>
+          <span className="text-[var(--faint)]"> — share this link or the reference code with the client so they can check progress themselves</span>
+        </div>
+      )}
 
       <SectionHead title="Case details" />
       <div className="grid grid-cols-2 gap-3">

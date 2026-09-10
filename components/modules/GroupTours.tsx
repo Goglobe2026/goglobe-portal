@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { money, fmtDate, genId, today } from '@/lib/constants';
+import { money, fmtDate, genId, today, REGIONS, REGION_COUNTRIES } from '@/lib/constants';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { QrCode } from '@/components/ui/QrCode';
 import { useToast } from '@/components/ui/Toast';
@@ -69,21 +69,47 @@ function TourCard({ tour, onOpen }: { tour: GroupTour; onOpen: () => void }) {
   );
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+const MAX_PDF_BYTES = 4 * 1024 * 1024; // 4MB — keeps the database file fast and reliable
+
 function NewTourForm({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { groupTours, setGroupTours } = useAppData();
   const toast = useToast();
-  const [name, setName] = useState(''); const [destination, setDestination] = useState('');
+  const [name, setName] = useState('');
+  const [region, setRegion] = useState<string>(REGIONS[0]);
+  const [countries, setCountries] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(today()); const [endDate, setEndDate] = useState(today());
   const [capacity, setCapacity] = useState(30); const [packagePrice, setPackagePrice] = useState(0);
   const [description, setDescription] = useState('');
+  const [planPdf, setPlanPdf] = useState(''); const [planPdfName, setPlanPdfName] = useState('');
+
+  function toggleCountry(c: string) {
+    setCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  }
+  async function handlePdfPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { toast('Please choose a PDF file'); return; }
+    if (file.size > MAX_PDF_BYTES) { toast('PDF is too large — please keep it under 4MB'); return; }
+    const dataUrl = await readFileAsDataUrl(file);
+    setPlanPdf(dataUrl); setPlanPdfName(file.name);
+  }
 
   function save() {
-    if (!name.trim() || !destination.trim()) { toast('Enter a tour name and destination'); return; }
+    const destination = countries.join(', ');
+    if (!name.trim() || !destination) { toast('Enter a tour name and pick at least one country'); return; }
     const id = genId('gt');
     const tourCode = genTourCode(destination, groupTours);
     setGroupTours(prev => [...prev, {
-      id, tourCode, name, destination, startDate, endDate, capacity, packagePrice,
-      status: 'Open', description, includedServices: [], createdAt: today(),
+      id, tourCode, name, region, destination, startDate, endDate, capacity, packagePrice,
+      status: 'Open', description, includedServices: [], planPdf, planPdfName, createdAt: today(),
     }]);
     toast('Tour created');
     onCreated(id);
@@ -92,9 +118,23 @@ function NewTourForm({ onClose, onCreated }: { onClose: () => void; onCreated: (
   return (
     <>
       <ModalTitle>Create new group tour</ModalTitle>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Tour name"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. 2027 Europe New Year Group Tour" /></Field>
-        <Field label="Destination"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="e.g. Brussels, Amsterdam, Paris" /></Field>
+      <Field label="Tour name"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. 2027 Europe New Year Group Tour" /></Field>
+      <Field label="Region">
+        <select value={region} onChange={e => { setRegion(e.target.value); setCountries([]); }}>
+          {REGIONS.map(r => <option key={r}>{r}</option>)}
+        </select>
+      </Field>
+      <div className="mb-3">
+        <label>Countries in this tour</label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {REGION_COUNTRIES[region].map(c => (
+            <button key={c} type="button" className="btn btn-sm" onClick={() => toggleCountry(c)}
+              style={countries.includes(c) ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11.5px] text-[var(--faint)] mt-1">{countries.length ? countries.join(', ') : 'Pick one or more countries this tour visits'}</div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Departure date"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
@@ -105,6 +145,10 @@ function NewTourForm({ onClose, onCreated }: { onClose: () => void; onCreated: (
         <Field label="Package price per person (PKR)"><input type="number" value={packagePrice} onChange={e => setPackagePrice(Number(e.target.value))} /></Field>
       </div>
       <Field label="Description"><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} /></Field>
+      <Field label="Trip plan PDF (optional, under 4MB)">
+        <input type="file" accept="application/pdf" onChange={handlePdfPick} />
+        {planPdfName && <div className="text-[11.5px] mt-1" style={{ color: 'var(--green)' }}>Attached: {planPdfName}</div>}
+      </Field>
       <ModalFoot>
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={save}>Create tour</button>
@@ -113,15 +157,111 @@ function NewTourForm({ onClose, onCreated }: { onClose: () => void; onCreated: (
   );
 }
 
+function EditTourForm({ tour, onClose }: { tour: GroupTour; onClose: () => void }) {
+  const { setGroupTours, logActivity } = useAppData();
+  const toast = useToast();
+  const [name, setName] = useState(tour.name);
+  const [region, setRegion] = useState<string>(tour.region && REGIONS.includes(tour.region) ? tour.region : REGIONS[0]);
+  const [countries, setCountries] = useState<string[]>(tour.destination ? tour.destination.split(',').map(s => s.trim()).filter(Boolean) : []);
+  const [startDate, setStartDate] = useState(tour.startDate); const [endDate, setEndDate] = useState(tour.endDate);
+  const [capacity, setCapacity] = useState(tour.capacity); const [packagePrice, setPackagePrice] = useState(tour.packagePrice);
+  const [status, setStatus] = useState<GroupTour['status']>(tour.status);
+  const [description, setDescription] = useState(tour.description);
+  const [planPdf, setPlanPdf] = useState(tour.planPdf || ''); const [planPdfName, setPlanPdfName] = useState(tour.planPdfName || '');
+
+  function toggleCountry(c: string) {
+    setCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  }
+  async function handlePdfPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { toast('Please choose a PDF file'); return; }
+    if (file.size > MAX_PDF_BYTES) { toast('PDF is too large — please keep it under 4MB'); return; }
+    const dataUrl = await readFileAsDataUrl(file);
+    setPlanPdf(dataUrl); setPlanPdfName(file.name);
+  }
+  function removePdf() { setPlanPdf(''); setPlanPdfName(''); }
+
+  function save() {
+    const destination = countries.join(', ');
+    if (!name.trim() || !destination) { toast('Enter a tour name and pick at least one country'); return; }
+    setGroupTours(prev => prev.map(t => t.id === tour.id ? { ...t, name, region, destination, startDate, endDate, capacity, packagePrice, status, description, planPdf, planPdfName } : t));
+    logActivity(`Updated tour details: ${name}`);
+    toast('Tour updated');
+    onClose();
+  }
+
+  return (
+    <>
+      <ModalTitle>Edit tour details</ModalTitle>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-1 mb-3">The tour code ({tour.tourCode}) and any already-registered travelers stay exactly as they are — this only updates the tour's own details.</div>
+      <Field label="Tour name"><input value={name} onChange={e => setName(e.target.value)} /></Field>
+      <Field label="Region">
+        <select value={region} onChange={e => { setRegion(e.target.value); setCountries([]); }}>
+          {REGIONS.map(r => <option key={r}>{r}</option>)}
+        </select>
+      </Field>
+      <div className="mb-3">
+        <label>Countries in this tour</label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {REGION_COUNTRIES[region].map(c => (
+            <button key={c} type="button" className="btn btn-sm" onClick={() => toggleCountry(c)}
+              style={countries.includes(c) ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Departure date"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
+        <Field label="Return date"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Capacity (total slots)"><input type="number" value={capacity} onChange={e => setCapacity(Number(e.target.value))} /></Field>
+        <Field label="Package price per person (PKR)"><input type="number" value={packagePrice} onChange={e => setPackagePrice(Number(e.target.value))} /></Field>
+      </div>
+      <Field label="Status">
+        <select value={status} onChange={e => setStatus(e.target.value as GroupTour['status'])}>
+          {TOUR_STATUSES.map(s => <option key={s}>{s}</option>)}
+        </select>
+      </Field>
+      <Field label="Description"><textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} /></Field>
+      <Field label="Trip plan PDF (optional, under 4MB)">
+        <input type="file" accept="application/pdf" onChange={handlePdfPick} />
+        {planPdfName && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11.5px]" style={{ color: 'var(--green)' }}>Attached: {planPdfName}</span>
+            <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={removePdf}>Remove</button>
+          </div>
+        )}
+      </Field>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save changes</button>
+      </ModalFoot>
+    </>
+  );
+}
+
 function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) {
-  const { groupTours, tourMembers } = useAppData();
+  const { groupTours, setGroupTours, tourMembers, setTourMembers, logActivity } = useAppData();
+  const toast = useToast();
   const tour = groupTours.find(t => t.id === tourId)!;
   const members = tourMembers.filter(m => m.tourId === tourId);
   const [showAddMember, setShowAddMember] = useState(false);
   const [openMemberId, setOpenMemberId] = useState<string | null>(null);
+  const [showEditTour, setShowEditTour] = useState(false);
 
   const fullyPaid = members.filter(m => m.status === 'Fully Paid' || m.status === 'Travel Confirmed').length;
   const docsComplete = members.filter(m => m.status === 'Documentation Complete' || m.status === 'Travel Confirmed').length;
+
+  function deleteTour() {
+    setTourMembers(prev => prev.filter(m => m.tourId !== tourId));
+    setGroupTours(prev => prev.filter(t => t.id !== tourId));
+    logActivity(`Deleted tour: ${tour.name}`);
+    toast('Tour and its travelers deleted');
+    onBack();
+  }
 
   return (
     <div>
@@ -132,7 +272,17 @@ function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) 
           <h2 className="font-display text-xl font-semibold">{tour.name}</h2>
           <div className="text-[var(--muted)] text-sm mt-0.5">{tour.destination} · {fmtDate(tour.startDate)} – {fmtDate(tour.endDate)}</div>
         </div>
+        <div className="flex gap-2">
+          <button className="btn btn-sm" onClick={() => setShowEditTour(true)}>Edit tour details</button>
+          <button className="btn btn-sm btn-ghost btn-danger" onClick={deleteTour}>Delete this tour</button>
+        </div>
       </div>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-3 mb-4">Deleting a tour also deletes every traveler registered under it — their reference codes and QR links stop working immediately.</div>
+
+      <Modal open={showEditTour} onClose={() => setShowEditTour(false)}>
+        <EditTourForm tour={tour} onClose={() => setShowEditTour(false)} />
+      </Modal>
+
 
       <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1 mb-4">
         <div className="card"><div className="text-[11.5px] uppercase text-[var(--muted)] font-semibold">Registered</div><div className="font-display text-2xl font-semibold mt-1">{members.length}/{tour.capacity}</div></div>
@@ -156,7 +306,12 @@ function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) 
                   <td className="font-mono-ui text-xs">{m.referenceCode}</td>
                   <td className="font-mono-ui text-xs">{money(m.paid)} / {money(m.totalDue)}</td>
                   <td><Stamp text={m.status} /></td>
-                  <td><button className="btn btn-sm" onClick={() => setOpenMemberId(m.id)}>View profile</button></td>
+                  <td>
+                    <div className="flex gap-1.5 justify-end">
+                      <button className="btn btn-sm" onClick={() => setOpenMemberId(m.id)}>View profile</button>
+                      <button className="btn btn-sm btn-ghost btn-danger" onClick={() => { setTourMembers(prev => prev.filter(x => x.id !== m.id)); toast('Traveler removed'); }}>Remove</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -3,6 +3,16 @@ export const DESTINATIONS = [
   'New Zealand', 'UAE', 'Malaysia', 'Saudi Arabia', 'Azerbaijan', 'Morocco',
 ] as const;
 
+export const REGION_COUNTRIES: Record<string, string[]> = {
+  'Europe': ['UK', 'Schengen', 'Türkiye'],
+  'Middle East': ['UAE', 'Saudi Arabia', 'Azerbaijan'],
+  'North America': ['USA', 'Canada'],
+  'Oceania': ['Australia', 'New Zealand'],
+  'Asia': ['Malaysia'],
+  'Africa': ['Morocco'],
+};
+export const REGIONS = Object.keys(REGION_COUNTRIES);
+
 export const VISA_TYPES_BY_DEST: Record<string, string[]> = {
   Canada: ['Tourist', 'Business'],
   UAE: ['Tourist', 'Business'],
@@ -76,5 +86,9 @@ export function fmtDate(d: string) {
 }
 
 export function today() {
-  return new Date().toISOString().slice(0, 10);
+  // Explicitly Pakistan time, not server-local or browser-local — this
+  // business operates in one timezone, and getting this wrong meant any
+  // action taken late at night (roughly 8pm-5am PKT) got stamped with
+  // yesterday's date instead of today's.
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 }

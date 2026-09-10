@@ -1,18 +1,24 @@
 'use client';
 import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { money, fmtDate, genId, today } from '@/lib/constants';
+import { money, fmtDate, genId, today, LEAD_STAGES } from '@/lib/constants';
 import { overallPaid } from './Cases';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { TeamMember } from '@/lib/types';
+import type { TeamMember, Lead } from '@/lib/types';
 
 function nowTime() { return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+function waLink(phone: string, text: string) {
+  const digits = (phone || '').replace(/[^0-9]/g, '').replace(/^0/, '92');
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+function isOverdue(l: Lead) { return !!l.nextFollowUp && l.nextFollowUp <= today() && !['Converted', 'Lost'].includes(l.stage); }
 
 export function MyPortal() {
-  const { session, team, leads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests } = useAppData();
+  const { session, team, leads, setLeads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests } = useAppData();
   const toast = useToast();
   const [showRequest, setShowRequest] = useState(false);
+  const [msgLeadId, setMsgLeadId] = useState<string | null>(null);
   const staffId = session?.type === 'employee' ? session.staffId : '';
   const found = team.find(x => x.id === staffId);
   if (!found) return <div className="card text-center p-8 text-[var(--muted)]">Staff record not found. Please log out and back in.</div>;
@@ -27,6 +33,10 @@ export function MyPortal() {
   const rate = totalPipeline ? Math.round((won / totalPipeline) * 100) : 0;
   const commissionEarned = Math.round(revenue * (t.commissionPercent / 100));
   const commissionPaid = transactions.filter(x => x.category === 'Commission' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
+  const thisMonth = today().slice(0, 7);
+  const closedThisMonth = myCases.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === thisMonth).length;
+  const quota = t.monthlyQuota || 5;
+  const quotaMet = closedThisMonth >= quota;
   const bonusEarned = won * t.bonusPerClose;
   const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
   const myAdj = [...adjustments.filter(a => a.staffId === t.id)].sort((a, b) => b.date.localeCompare(a.date));
@@ -45,7 +55,7 @@ export function MyPortal() {
   function checkIn() {
     const existing = attendance.find(a => a.staffId === t.id && a.date === today());
     if (existing) setAttendance(prev => prev.map(a => a.id === existing.id ? { ...a, checkIn: nowTime() } : a));
-    else setAttendance(prev => [...prev, { id: genId('at'), staffId: t.id, date: today(), checkIn: nowTime(), checkOut: '' }]);
+    else setAttendance(prev => [...prev, { id: genId('at'), staffId: t.id, date: today(), checkIn: nowTime(), checkOut: '', onApprovedLeave: false }]);
     toast('Checked in');
   }
   function checkOut() {
@@ -90,19 +100,40 @@ export function MyPortal() {
           <SectionHead title="My earnings" />
           <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
             <MiniMetric label="Base salary" value={money(t.salary)} />
-            <MiniMetric label={`Commission (${t.commissionPercent}%)`} value={money(commissionEarned)} note={`${money(commissionPaid)} already paid`} />
+            <MiniMetric label={`Commission (${t.commissionPercent}%)`} value={quotaMet ? money(commissionEarned) : `Locked`} note={quotaMet ? `${money(commissionPaid)} already paid` : `Close ${quota - closedThisMonth} more case${quota - closedThisMonth === 1 ? '' : 's'} this month to unlock`} />
             <MiniMetric label={`Bonus (${money(t.bonusPerClose)}/close)`} value={money(bonusEarned)} note={`${money(bonusPaid)} already paid`} />
           </div>
-          <SectionHead title="My leads" count={String(myLeads.length)} />
+          <SectionHead title="My leads" count={`${myLeads.length} — ${myLeads.filter(isOverdue).length} due for follow-up`} />
           <div className="card p-0 overflow-auto">
-            <table><thead><tr><th>Name</th><th>Destination</th><th>Stage</th></tr></thead>
+            <table><thead><tr><th>Name</th><th>Destination</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th></tr></thead>
               <tbody>
-                {myLeads.length ? myLeads.map(l => (
-                  <tr key={l.id}><td className="font-medium">{l.name}</td><td>{l.destination}</td><td><Stamp text={l.stage} /></td></tr>
-                )) : <tr><td colSpan={3} className="text-[var(--muted)] p-3.5">No leads assigned yet.</td></tr>}
+                {myLeads.length ? myLeads.map(l => {
+                  const overdue = isOverdue(l);
+                  return (
+                    <tr key={l.id} style={overdue ? { background: 'var(--red-50)' } : undefined}>
+                      <td className="font-medium">{l.name}<div className="font-mono-ui text-xs text-[var(--muted)]">{l.phone}</div></td>
+                      <td>{l.destination}</td>
+                      <td>
+                        <select className="border-none bg-transparent font-medium p-0.5" value={l.stage} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, stage: e.target.value as Lead['stage'] } : x))}>
+                          {LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <input type="date" className="font-mono-ui !w-36" value={l.nextFollowUp || ''} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, nextFollowUp: e.target.value } : x))} />
+                        {overdue && <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--red)' }}>Overdue</div>}
+                      </td>
+                      <td><button className="btn btn-sm btn-ghost" onClick={() => setMsgLeadId(l.id)}>{l.messages.length} logged</button></td>
+                      <td>
+                        <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
+                          href={waLink(l.phone, `Hello ${l.name}, this is GoGlobe Consultant regarding your ${l.destination} visa enquiry.`)}>WhatsApp</a>
+                      </td>
+                    </tr>
+                  );
+                }) : <tr><td colSpan={6} className="text-[var(--muted)] p-3.5">No leads assigned yet.</td></tr>}
               </tbody>
             </table>
           </div>
+          <div className="text-[11.5px] text-[var(--faint)] -mt-3 mb-3.5">Pick a follow-up date when you speak to someone — it'll show up on the calendar and remind you when it's due.</div>
           <SectionHead title="My cases" count={String(myCases.length)} />
           <div className="card p-0 overflow-auto">
             <table><thead><tr><th>Client</th><th>Destination</th><th>Case stage</th><th>Status</th><th>Documents</th></tr></thead>
@@ -119,6 +150,7 @@ export function MyPortal() {
         <>
           <SectionHead title="My department tasks" />
           <DepartmentSnapshot department={t.department} />
+          {t.department === 'Management' && <ManagerReviewQueue />}
           <SectionHead title="My earnings" />
           <div className="card" style={{ maxWidth: 280 }}><MiniMetric label="Base salary" value={money(t.salary)} /></div>
         </>
@@ -171,7 +203,52 @@ export function MyPortal() {
       <Modal open={showRequest} onClose={() => setShowRequest(false)}>
         <RequestForm staffId={t.id} onClose={() => setShowRequest(false)} />
       </Modal>
+
+      <Modal open={!!msgLeadId} onClose={() => setMsgLeadId(null)}>
+        {msgLeadId && <MyMessageLog leadId={msgLeadId} onClose={() => setMsgLeadId(null)} />}
+      </Modal>
     </div>
+  );
+}
+
+function MyMessageLog({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const { leads, setLeads } = useAppData();
+  const toast = useToast();
+  const [text, setText] = useState(''); const [direction, setDirection] = useState<'In' | 'Out'>('Out');
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return null;
+
+  function add() {
+    if (!text.trim()) { toast('Enter a message'); return; }
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, messages: [...l.messages, { date: today(), text, direction }] } : l));
+    setText('');
+  }
+
+  return (
+    <>
+      <ModalTitle>Message log — {lead.name}</ModalTitle>
+      <div className="max-h-64 overflow-auto mb-3.5">
+        {lead.messages.length ? lead.messages.map((m, i) => (
+          <div key={i} className="flex gap-2.5 py-2 border-b last:border-0 items-start" style={{ borderColor: 'var(--line)' }}>
+            <Stamp text={m.direction === 'In' ? 'New' : 'Active'} />
+            <span className="flex-1">{m.text}<div className="font-mono-ui text-xs mt-0.5">{m.date}</div></span>
+          </div>
+        )) : <div className="text-[var(--muted)] py-2.5">No messages logged yet.</div>}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Direction">
+          <select value={direction} onChange={e => setDirection(e.target.value as 'In' | 'Out')}>
+            <option value="Out">I called/messaged them</option>
+            <option value="In">They contacted me</option>
+          </select>
+        </Field>
+        <Field label="What happened"><input value={text} onChange={e => setText(e.target.value)} placeholder="e.g. Interested, will decide by Friday" /></Field>
+      </div>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Close</button>
+        <button className="btn btn-primary" onClick={add}>Add to log</button>
+      </ModalFoot>
+    </>
   );
 }
 
@@ -182,6 +259,72 @@ function MiniMetric({ label, value, note }: { label: string; value: string; note
       <div className="font-display text-[22px] font-semibold mt-1.5">{value}</div>
       {note && <div className="text-[11.5px] text-[var(--faint)] mt-1">{note}</div>}
     </div>
+  );
+}
+
+function ManagerReviewQueue() {
+  const { cases, setCases, team, logActivity } = useAppData();
+  const toast = useToast();
+  const awaiting = cases.filter(c => c.caseStage === 'Manager Review');
+  const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
+
+  function toggleCover(caseId: string) {
+    setCases(prev => prev.map(c => c.id === caseId ? { ...c, coverLetterChecked: !c.coverLetterChecked } : c));
+  }
+  function approve(c: typeof cases[0]) {
+    if (!c.coverLetterChecked) { toast('Check the cover letter box first'); return; }
+    setCases(prev => prev.map(x => x.id === c.id ? { ...x, managerApproved: true, caseStage: 'Appointment Booking' } : x));
+    logActivity(`${c.name} — approved by manager`);
+    toast('Approved — moved to appointment booking');
+  }
+
+  return (
+    <>
+      <SectionHead title="Cases awaiting your review" count={`${awaiting.length} in the queue`} />
+      {!awaiting.length ? (
+        <div className="card text-[13px] text-[var(--muted)] mb-4">Nothing waiting on you right now.</div>
+      ) : (
+        <div className="card p-0 overflow-auto mb-4">
+          <table>
+            <thead><tr><th>Client</th><th>Destination</th><th>Consultant</th><th>Cover letter</th><th></th></tr></thead>
+            <tbody>
+              {awaiting.map(c => (
+                <tr key={c.id}>
+                  <td className="font-medium">{c.name}</td>
+                  <td>{c.destination} <span className="text-[var(--muted)] text-[11px]">{c.visaType}</span></td>
+                  <td>{consultantName(c.consultant)}</td>
+                  <td>
+                    <label className="flex items-center gap-1.5 text-[12.5px]">
+                      <input type="checkbox" className="!w-auto" checked={c.coverLetterChecked} onChange={() => toggleCover(c.id)} />
+                      Reviewed
+                    </label>
+                  </td>
+                  <td><button className="btn btn-sm btn-primary" onClick={() => approve(c)}>Approve</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <SectionHead title="Team pipeline" count={`${cases.length} cases across everyone`} />
+      <div className="card p-0 overflow-auto mb-4">
+        <table>
+          <thead><tr><th>Client</th><th>Consultant</th><th>Stage</th><th>Status</th></tr></thead>
+          <tbody>
+            {cases.slice(0, 15).map(c => (
+              <tr key={c.id}>
+                <td className="font-medium">{c.name}</td>
+                <td>{consultantName(c.consultant)}</td>
+                <td>{c.caseStage}</td>
+                <td><Stamp text={c.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {cases.length > 15 && <div className="text-[11.5px] text-[var(--faint)] -mt-3 mb-4">Showing the 15 most recent — ask the CEO for the full Cases view if you need to see everything.</div>}
+    </>
   );
 }
 
@@ -247,10 +390,15 @@ function RequestForm({ staffId, onClose }: { staffId: string; onClose: () => voi
   const toast = useToast();
   const [type, setType] = useState<'Leave' | 'Salary advance' | 'Complaint' | 'Other'>('Leave');
   const [details, setDetails] = useState('');
+  const [leaveStartDate, setLeaveStartDate] = useState(today());
+  const [leaveEndDate, setLeaveEndDate] = useState(today());
 
   function save() {
     if (!details.trim()) { toast('Enter some details'); return; }
-    setRequests(prev => [...prev, { id: genId('rq'), staffId, type, details, date: today(), status: 'Pending', managerNote: '' }]);
+    setRequests(prev => [...prev, {
+      id: genId('rq'), staffId, type, details, date: today(), status: 'Pending', managerNote: '',
+      leaveStartDate: type === 'Leave' ? leaveStartDate : '', leaveEndDate: type === 'Leave' ? leaveEndDate : '',
+    }]);
     toast('Request submitted');
     onClose();
   }
@@ -263,6 +411,12 @@ function RequestForm({ staffId, onClose }: { staffId: string; onClose: () => voi
           {['Leave', 'Salary advance', 'Complaint', 'Other'].map(t => <option key={t}>{t}</option>)}
         </select>
       </Field>
+      {type === 'Leave' && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="From"><input type="date" value={leaveStartDate} onChange={e => setLeaveStartDate(e.target.value)} /></Field>
+          <Field label="To"><input type="date" value={leaveEndDate} onChange={e => setLeaveEndDate(e.target.value)} /></Field>
+        </div>
+      )}
       <Field label="Details"><textarea rows={3} value={details} onChange={e => setDetails(e.target.value)} placeholder="Describe your request" /></Field>
       <ModalFoot>
         <button className="btn" onClick={onClose}>Cancel</button>

@@ -11,6 +11,8 @@ export function Stamp({ text, className = '' }: { text: string; className?: stri
     'watching-for-slot': 'st-contacted', pending: 'st-refused', rejected: 'st-refused',
     open: 'st-approved', 'limited-seats': 'st-contacted', full: 'st-refused',
     given: 'st-approved', taken: 'st-contacted', 'paid-off': 'st-approved',
+    'on-leave': 'st-contacted', resigned: 'st-lost', terminated: 'st-refused',
+    late: 'st-refused', 'on-approved-leave': 'st-contacted',
     registered: 'st-new', 'partially-paid': 'st-contacted', 'fully-paid': 'st-approved',
     'documentation-complete': 'st-approved', 'travel-confirmed': 'st-approved', cancelled: 'st-refused',
   };

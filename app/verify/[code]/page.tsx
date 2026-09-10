@@ -50,6 +50,13 @@ export default async function VerifyPage({ params }: { params: Promise<{ code: s
                 GoGlobe Consultant confirms that <b>{data.memberName}</b> holds an active registration for this group tour to <b>{data.tour.destination}</b>,
                 departing <b>{fmtDate(data.tour.startDate)}</b> and returning <b>{fmtDate(data.tour.endDate)}</b>.
               </p>
+              {data.tour.planPdf && (
+                <a href={data.tour.planPdf} download={data.tour.planPdfName || 'trip-plan.pdf'}
+                  className="inline-block mb-5 text-[13px] font-medium px-4 py-2 rounded-lg"
+                  style={{ background: 'var(--green-50)', color: 'var(--green)' }}>
+                  📄 View trip plan (PDF)
+                </a>
+              )}
             </>
           )}
 

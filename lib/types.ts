@@ -24,6 +24,7 @@ export interface DocItem {
 
 export interface Case {
   id: string;
+  referenceCode: string;
   name: string;
   phone: string;
   destination: string;
@@ -62,6 +63,7 @@ export interface GroupTour {
   id: string;
   tourCode: string;
   name: string;
+  region: string;
   destination: string;
   startDate: string;
   endDate: string;
@@ -70,6 +72,8 @@ export interface GroupTour {
   status: 'Open' | 'Limited Seats' | 'Full' | 'Closed';
   description: string;
   includedServices: string[];
+  planPdf: string;
+  planPdfName: string;
   createdAt: string;
 }
 
@@ -155,6 +159,10 @@ export interface TeamMember {
   contractType: 'Permanent' | 'Contract' | 'Probation' | 'Part-time';
   contractStart: string;
   contractEnd: string;
+  monthlyQuota: number;
+  performanceCategory: 'Junior' | 'Standard' | 'Senior' | 'Top Performer';
+  employmentStatus: 'Active' | 'On Leave' | 'Resigned' | 'Terminated';
+  lastWorkingDay: string;
 }
 
 export interface Transaction {
@@ -181,6 +189,7 @@ export interface AttendanceRecord {
   date: string;
   checkIn: string;
   checkOut: string;
+  onApprovedLeave: boolean;
 }
 
 export interface RateCardEntry {
@@ -224,6 +233,8 @@ export interface EmployeeRequest {
   type: 'Leave' | 'Salary advance' | 'Complaint' | 'Other';
   details: string;
   date: string;
+  leaveStartDate: string;
+  leaveEndDate: string;
   status: 'Pending' | 'Approved' | 'Rejected';
   managerNote: string;
 }

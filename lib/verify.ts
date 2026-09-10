@@ -27,6 +27,8 @@ export function getVerificationData(code: string) {
       destination: tour.destination,
       startDate: tour.startDate,
       endDate: tour.endDate,
+      planPdf: tour.planPdf || '',
+      planPdfName: tour.planPdfName || '',
     } : null,
     groupMembers: groupMembers.map(m => ({
       referenceCode: m.referenceCode === code ? m.referenceCode : maskCode(m.referenceCode),

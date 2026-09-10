@@ -6,6 +6,10 @@ import { readCollection } from '@/lib/store';
 // phone numbers, etc. This strips everything down to id/name/role only.
 export async function GET() {
   const team = readCollection('team');
-  const minimal = team.map(t => ({ id: t.id, name: t.name, role: t.role }));
+  // Only show people who can actually still sign in — someone marked
+  // Resigned or Terminated shouldn't appear as a login option, even though
+  // their historical records stay intact everywhere else.
+  const loginable = team.filter(t => !t.employmentStatus || t.employmentStatus === 'Active' || t.employmentStatus === 'On Leave');
+  const minimal = loginable.map(t => ({ id: t.id, name: t.name, role: t.role }));
   return NextResponse.json(minimal);
 }

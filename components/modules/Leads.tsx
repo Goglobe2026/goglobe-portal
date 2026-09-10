@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
+import { exportToCsv } from '@/lib/csv';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { Lead } from '@/lib/types';
@@ -27,7 +28,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const [showCountryNotes, setShowCountryNotes] = useState(false);
   const [tourLeadId, setTourLeadId] = useState<string | null>(null);
 
-  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department));
+  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
   const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
 
   const countryCounts = useMemo(() => {
@@ -64,10 +65,21 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
   const selectedLeads = leads.filter(l => selected.has(l.id));
 
+  function exportLeads() {
+    exportToCsv('goglobe-leads', leads.map(l => ({
+      Name: l.name, Phone: l.phone, Source: l.source, Campaign: l.campaign, Destination: l.destination,
+      'Visa Type': l.visaType, Stage: l.stage, 'Assigned To': consultantName(l.assignedTo),
+      'Created': l.createdAt, 'Next Follow-up': l.nextFollowUp, 'Last Contacted': l.lastContacted, Notes: l.notes,
+    })));
+  }
+
   return (
     <div>
       <SectionHead title="All leads" count={`${leads.length} total`} action={
-        <button className="btn btn-primary ml-auto" onClick={() => setShowNew(true)}>+ New lead</button>
+        <div className="flex gap-2 ml-auto">
+          <button className="btn" onClick={exportLeads}>Export CSV</button>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New lead</button>
+        </div>
       } />
 
       {countryCounts.length > 0 && (
@@ -227,14 +239,20 @@ function WhatsAppQueue({ leads, onClose }: { leads: Lead[]; onClose: () => void 
   );
 }
 
+function normalizePhone(p: string) { return (p || '').replace(/[^0-9]/g, '').replace(/^92/, '0'); }
+
 function NewLeadForm({ onClose, assignable, campaigns }: any) {
-  const { setLeads, logActivity } = useAppData();
+  const { leads, cases, setLeads, logActivity } = useAppData();
   const toast = useToast();
   const [name, setName] = useState(''); const [phone, setPhone] = useState('');
   const [source, setSource] = useState('WhatsApp'); const [campaign, setCampaign] = useState('');
   const [dest, setDest] = useState<string>(DESTINATIONS[0]); const [visaType, setVisaType] = useState(visaTypesFor(DESTINATIONS[0])[0]);
   const [assignedTo, setAssignedTo] = useState(assignable[0]?.id || ''); const [notes, setNotes] = useState('');
   const [nextFollowUp, setNextFollowUp] = useState(today());
+
+  const normalizedInput = normalizePhone(phone);
+  const duplicateLead = normalizedInput.length >= 7 ? leads.find((l: Lead) => normalizePhone(l.phone) === normalizedInput) : null;
+  const duplicateCase = normalizedInput.length >= 7 ? cases.find((c: any) => normalizePhone(c.phone) === normalizedInput) : null;
 
   function save() {
     if (!name.trim()) { toast('Enter a name'); return; }
@@ -254,6 +272,13 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
         <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} placeholder="Client name" /></Field>
         <Field label="Phone / WhatsApp"><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="03XX XXXXXXX" /></Field>
       </div>
+      {(duplicateLead || duplicateCase) && (
+        <div className="card mb-3" style={{ background: 'var(--gold-50)' }}>
+          <div className="text-[12.5px]" style={{ color: '#6b4e10' }}>
+            ⚠ This phone number already exists {duplicateLead ? `as a lead for ${duplicateLead.name}` : ''}{duplicateLead && duplicateCase ? ' and ' : ''}{duplicateCase ? `as a case for ${duplicateCase.name}` : ''}. You can still save this — just worth checking it's not the same person before two people end up chasing them separately.
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Source">
           <select value={source} onChange={e => setSource(e.target.value)}>

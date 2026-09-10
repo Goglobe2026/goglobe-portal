@@ -143,7 +143,7 @@ function BookForm({ prefillDate, onClose }: { prefillDate: string; onClose: () =
   const [clientName, setClientName] = useState(''); const [phone, setPhone] = useState('');
   const [date, setDate] = useState(prefillDate); const [time, setTime] = useState('10:00'); const [anytime, setAnytime] = useState(false);
   const [type, setType] = useState('Free consultation'); const [portal, setPortal] = useState('');
-  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department));
+  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
   const [consultant, setConsultant] = useState(assignable[0]?.id || '');
 
   function save() {
