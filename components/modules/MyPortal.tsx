@@ -15,9 +15,10 @@ function waLink(phone: string, text: string) {
 function isOverdue(l: Lead) { return !!l.nextFollowUp && l.nextFollowUp <= today() && !['Converted', 'Lost'].includes(l.stage); }
 
 export function MyPortal() {
-  const { session, team, leads, setLeads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests } = useAppData();
+  const { session, team, leads, setLeads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests, playbook } = useAppData();
   const toast = useToast();
   const [showRequest, setShowRequest] = useState(false);
+  const [showPlaybook, setShowPlaybook] = useState(false);
   const [msgLeadId, setMsgLeadId] = useState<string | null>(null);
   const staffId = session?.type === 'employee' ? session.staffId : '';
   const found = team.find(x => x.id === staffId);
@@ -72,8 +73,25 @@ export function MyPortal() {
         <div className="font-mono-ui text-[11.5px] opacity-75 mt-1">Shift {t.shiftStart}–{t.shiftEnd} · {t.phone}</div>
       </div>
 
+      {myLeads.filter(isOverdue).length > 0 && (
+        <div className="card mb-3.5" style={{ background: 'var(--red-50)', border: '1px solid var(--red)' }}>
+          <div className="text-[13px] font-semibold" style={{ color: 'var(--red)' }}>
+            You have {myLeads.filter(isOverdue).length} lead{myLeads.filter(isOverdue).length === 1 ? '' : 's'} due for follow-up — check "My leads" below.
+          </div>
+        </div>
+      )}
+
       <SectionHead title="Job description" />
       <div className="card text-[13px] leading-relaxed">{jd}</div>
+
+      {playbook && (
+        <>
+          <SectionHead title="Company playbook" count="how we work — responsibilities, follow-up, sales approach" action={
+            <button className="btn btn-sm ml-auto" onClick={() => setShowPlaybook(!showPlaybook)}>{showPlaybook ? 'Hide' : 'View'}</button>
+          } />
+          {showPlaybook && <div className="card text-[13px] whitespace-pre-wrap mb-4" style={{ lineHeight: 1.6 }}>{playbook}</div>}
+        </>
+      )}
 
       <SectionHead title="Today's attendance" />
       <div className="card flex justify-between items-center flex-wrap gap-3">
@@ -265,10 +283,17 @@ function MiniMetric({ label, value, note }: { label: string; value: string; note
 }
 
 function ManagerReviewQueue() {
-  const { cases, setCases, team, logActivity } = useAppData();
+  const { cases, setCases, leads, team, logActivity } = useAppData();
   const toast = useToast();
   const awaiting = cases.filter(c => c.caseStage === 'Manager Review');
   const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
+
+  const escalatedLeads = leads.filter(l => l.escalated && !l.escalationResolved);
+  const staleLeads = leads.filter(l =>
+    (!l.escalated || l.escalationResolved) &&
+    ['New', 'Contacted', 'Qualified'].includes(l.stage) &&
+    Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000) >= 7
+  );
 
   function toggleCover(caseId: string) {
     setCases(prev => prev.map(c => c.id === caseId ? { ...c, coverLetterChecked: !c.coverLetterChecked } : c));
@@ -282,6 +307,35 @@ function ManagerReviewQueue() {
 
   return (
     <>
+      {(escalatedLeads.length > 0 || staleLeads.length > 0) && (
+        <>
+          <SectionHead title="Leads needing your attention" count={`${escalatedLeads.length} escalated · ${staleLeads.length} untouched a week or more`} />
+          <div className="card p-0 overflow-auto mb-4">
+            <table>
+              <thead><tr><th>Client</th><th>Consultant</th><th>Why</th><th></th></tr></thead>
+              <tbody>
+                {escalatedLeads.map(l => (
+                  <tr key={l.id}>
+                    <td className="font-medium">{l.name}</td>
+                    <td>{consultantName(l.assignedTo)}</td>
+                    <td className="text-[12.5px]" style={{ color: 'var(--gold)' }}>⚑ {l.escalationReason}</td>
+                    <td></td>
+                  </tr>
+                ))}
+                {staleLeads.map(l => (
+                  <tr key={l.id}>
+                    <td className="font-medium">{l.name}</td>
+                    <td>{consultantName(l.assignedTo)}</td>
+                    <td className="text-[12.5px]" style={{ color: 'var(--red)' }}>{Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000)} days, no contact yet</td>
+                    <td></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       <SectionHead title="Cases awaiting your review" count={`${awaiting.length} in the queue`} />
       {!awaiting.length ? (
         <div className="card text-[13px] text-[var(--muted)] mb-4">Nothing waiting on you right now.</div>

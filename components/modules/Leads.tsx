@@ -21,6 +21,9 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const toast = useToast();
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [lostReasonFor, setLostReasonFor] = useState<string | null>(null);
+  const [escalateFor, setEscalateFor] = useState<string | null>(null);
+  const [showMaterialsFor, setShowMaterialsFor] = useState<string | null>(null);
   const [msgLead, setMsgLead] = useState<Lead | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
@@ -40,16 +43,25 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   }, [leads]);
 
   const dueCount = leads.filter(isOverdue).length;
+  const [search, setSearch] = useState('');
 
   const filtered = leads.filter(l => {
     if (countryFilter && l.destination !== countryFilter) return false;
     if (dueOnly && !isOverdue(l)) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const qDigits = q.replace(/[^0-9]/g, '');
+      const nameMatch = l.name.toLowerCase().includes(q);
+      const phoneMatch = qDigits.length > 0 && normalizePhone(l.phone).includes(normalizePhone(qDigits));
+      if (!nameMatch && !phoneMatch) return false;
+    }
     return true;
   });
 
   function updateStage(id: string, stage: Lead['stage']) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, stage } : l));
     logActivity(`Lead moved to ${stage}`);
+    if (stage === 'Lost') setLostReasonFor(id);
   }
   function setFollowUp(id: string, date: string) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, nextFollowUp: date } : l));
@@ -86,6 +98,14 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         </div>
       } />
 
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search by name or phone number…"
+        className="mb-3.5"
+        style={{ maxWidth: 360 }}
+      />
+
       {countryCounts.length > 0 && (
         <div className="card mb-3.5">
           <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)] mb-2">Interest by country — click to filter</div>
@@ -109,9 +129,21 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         </button>
         <button className="btn btn-sm" onClick={() => setShowCountryNotes(true)}>Country updates</button>
         {selected.size > 0 && (
-          <button className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} onClick={() => setShowQueue(true)}>
-            WhatsApp follow-up ({selected.size} selected)
-          </button>
+          <>
+            <button className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} onClick={() => setShowQueue(true)}>
+              WhatsApp follow-up ({selected.size} selected)
+            </button>
+            <select className="btn btn-sm" defaultValue="" onChange={e => {
+              if (!e.target.value) return;
+              setLeads(prev => prev.map(l => selected.has(l.id) ? { ...l, assignedTo: e.target.value } : l));
+              toast(`Assigned ${selected.size} lead${selected.size === 1 ? '' : 's'}`);
+              setSelected(new Set());
+              e.target.value = '';
+            }}>
+              <option value="">Assign {selected.size} selected to…</option>
+              {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </>
         )}
       </div>
 
@@ -135,7 +167,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                     <td className="font-medium">{l.name}<div className="font-mono-ui text-xs text-[var(--muted)]">{l.phone}</div></td>
                     <td>{l.source}{l.campaign && <div className="font-mono-ui text-xs" style={{ color: 'var(--gold)' }}>{l.campaign}</div>}</td>
                     <td>{l.destination}</td>
-                    <td>{consultantName(l.assignedTo)}</td>
+                    <td>
+                      <select className="border-none bg-transparent font-medium p-0.5" value={l.assignedTo || ''} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, assignedTo: e.target.value } : x))}>
+                        <option value="">Unassigned</option>
+                        {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </td>
                     <td>
                       <select className="border-none bg-transparent font-medium p-0.5" value={l.stage} onChange={e => updateStage(l.id, e.target.value as Lead['stage'])}>
                         {LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -144,6 +181,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                     <td>
                       <input type="date" className="font-mono-ui !w-36" value={l.nextFollowUp || ''} onChange={e => setFollowUp(l.id, e.target.value)} />
                       {overdue && <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--red)' }}>Overdue</div>}
+                      {l.escalated && !l.escalationResolved && <div className="text-[10.5px] mt-0.5 font-medium" style={{ color: 'var(--gold)' }}>⚑ Escalated</div>}
                     </td>
                     <td><button className="btn btn-sm btn-ghost" onClick={() => setMsgLead(l)}>{l.messages.length} logged</button></td>
                     <td>
@@ -151,6 +189,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                         <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
                           href={waLink(l.phone, `Hello ${l.name}, this is GoGlobe Consultant regarding your ${l.destination} visa enquiry.`)}>WhatsApp</a>
                         <button className="btn btn-sm" onClick={() => onConvert(l)}>Convert</button>
+                        <button className="btn btn-sm" onClick={() => setShowMaterialsFor(l.id)}>Send materials</button>
+                        {!l.escalated || l.escalationResolved ? (
+                          <button className="btn btn-sm" onClick={() => setEscalateFor(l.id)}>Escalate</button>
+                        ) : (
+                          <button className="btn btn-sm" style={{ background: 'var(--gold-50)' }} onClick={() => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x))}>Mark resolved</button>
+                        )}
                         <button className="btn btn-sm" onClick={() => setTourLeadId(l.id)}>Add to tour</button>
                         <button className="btn btn-sm btn-ghost btn-danger" onClick={() => remove(l.id)}>Delete</button>
                       </div>
@@ -185,6 +229,18 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
       <Modal open={showCountryNotes} onClose={() => setShowCountryNotes(false)} wide>
         <CountryNotesPanel onClose={() => setShowCountryNotes(false)} />
+      </Modal>
+
+      <Modal open={!!lostReasonFor} onClose={() => setLostReasonFor(null)}>
+        {lostReasonFor && <LostReasonForm leadId={lostReasonFor} onClose={() => setLostReasonFor(null)} />}
+      </Modal>
+
+      <Modal open={!!escalateFor} onClose={() => setEscalateFor(null)}>
+        {escalateFor && <EscalateForm leadId={escalateFor} onClose={() => setEscalateFor(null)} />}
+      </Modal>
+
+      <Modal open={!!showMaterialsFor} onClose={() => setShowMaterialsFor(null)}>
+        {showMaterialsFor && <SendMaterialsForm leadId={showMaterialsFor} onClose={() => setShowMaterialsFor(null)} />}
       </Modal>
     </div>
   );
@@ -267,6 +323,7 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
     setLeads((prev: Lead[]) => [...prev, {
       id: genId('ld'), name, phone, source, campaign, destination: dest, visaType, stage: 'New',
       assignedTo, createdAt: today(), notes, messages: [], nextFollowUp, lastContacted: '',
+      escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
     }]);
     logActivity(`New lead: ${name}`);
     toast('Lead added');
@@ -606,6 +663,7 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
         destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
         visaType: '', stage: 'New', assignedTo: '', createdAt: today(),
         notes: noteParts.join(' · '), messages: [], nextFollowUp: today(), lastContacted: '',
+        escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
       });
       existingPhones.add(normalizePhone(rawPhone)); // guard against duplicates within the file itself
     }
@@ -678,6 +736,106 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
         <button className="btn" onClick={onClose}>{result ? 'Close' : 'Cancel'}</button>
         {headers.length > 0 && !result && <button className="btn btn-primary" onClick={runImport}>Import {rows.length} row{rows.length === 1 ? '' : 's'}</button>}
       </ModalFoot>
+    </>
+  );
+}
+
+const LOST_REASONS = ['Went with a competitor', 'Budget / price too high', 'Not interested anymore', 'Not responding', 'Visa not suitable for their case', 'Other'];
+
+function LostReasonForm({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const { leads, setLeads } = useAppData();
+  const lead = leads.find(l => l.id === leadId);
+  const [reason, setReason] = useState(LOST_REASONS[0]);
+  const [note, setNote] = useState('');
+
+  function save() {
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, lostReason: note ? `${reason} — ${note}` : reason } : l));
+    onClose();
+  }
+
+  if (!lead) return null;
+  return (
+    <>
+      <ModalTitle>Why was this one lost? — {lead.name}</ModalTitle>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-1 mb-3">Optional, but this is the only way to actually see patterns in what's costing you deals.</div>
+      <Field label="Reason">
+        <select value={reason} onChange={e => setReason(e.target.value)}>
+          {LOST_REASONS.map(r => <option key={r}>{r}</option>)}
+        </select>
+      </Field>
+      <Field label="Any detail (optional)"><input value={note} onChange={e => setNote(e.target.value)} /></Field>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Skip</button>
+        <button className="btn btn-primary" onClick={save}>Save reason</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function EscalateForm({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const { leads, setLeads, logActivity } = useAppData();
+  const toast = useToast();
+  const lead = leads.find(l => l.id === leadId);
+  const [reason, setReason] = useState('');
+
+  function save() {
+    if (!reason.trim()) { toast('Explain what you need help with'); return; }
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, escalated: true, escalationReason: reason, escalationResolved: false } : l));
+    logActivity(`${lead?.name} escalated to manager: ${reason}`);
+    toast('Escalated — your manager will see this in their review queue');
+    onClose();
+  }
+
+  if (!lead) return null;
+  return (
+    <>
+      <ModalTitle>Escalate to manager — {lead.name}</ModalTitle>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-1 mb-3">This shows up in the Management team's review queue, the same place case approvals go.</div>
+      <Field label="What do you need from them?"><textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Client is asking for a discount I can't approve" /></Field>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Escalate</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function SendMaterialsForm({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const { leads, marketingMaterials } = useAppData();
+  const lead = leads.find(l => l.id === leadId);
+  const [picked, setPicked] = useState<string>(marketingMaterials[0]?.id || '');
+  if (!lead) return null;
+
+  if (!marketingMaterials.length) {
+    return (
+      <>
+        <ModalTitle>No materials uploaded yet</ModalTitle>
+        <p style={{ marginBottom: 16 }}>Upload flyers or brochures from the Campaigns tab first, then come back here to send one to {lead.name}.</p>
+        <ModalFoot><button className="btn btn-primary" onClick={onClose}>Close</button></ModalFoot>
+      </>
+    );
+  }
+
+  const material = marketingMaterials.find(m => m.id === picked);
+  const materialLink = material && typeof window !== 'undefined' ? `${window.location.origin}/api/materials/${material.id}` : '';
+  const message = `Hello ${lead.name}, this is GoGlobe Consultant — here's our ${lead.destination} information: ${materialLink}`;
+
+  return (
+    <>
+      <ModalTitle>Send materials — {lead.name}</ModalTitle>
+      <div className="text-[11.5px] text-[var(--faint)] mb-3">
+        The link opens the PDF directly in their browser — no attaching needed on your end, just pick one and hit send.
+      </div>
+      <Field label="Which material">
+        <select value={picked} onChange={e => setPicked(e.target.value)}>
+          {marketingMaterials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+      <a className="btn btn-primary w-full text-center" style={{ textDecoration: 'none' }} target="_blank"
+        href={waLink(lead.phone, message)}>
+        Open WhatsApp with link ready to send
+      </a>
+      <ModalFoot><button className="btn" onClick={onClose}>Close</button></ModalFoot>
     </>
   );
 }

@@ -6,6 +6,7 @@ import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } f
 import { QrCode } from '@/components/ui/QrCode';
 import { useToast } from '@/components/ui/Toast';
 import type { GroupTour, TourMember } from '@/lib/types';
+import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
 
 const TOUR_STATUSES = ['Open', 'Limited Seats', 'Full', 'Closed'] as const;
 const MEMBER_STATUSES = ['Registered', 'Partially Paid', 'Fully Paid', 'Documentation Complete', 'Travel Confirmed', 'Cancelled'] as const;
@@ -68,16 +69,6 @@ function TourCard({ tour, onOpen }: { tour: GroupTour; onOpen: () => void }) {
     </div>
   );
 }
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-const MAX_PDF_BYTES = 4 * 1024 * 1024; // 4MB — keeps the database file fast and reliable
 
 function NewTourForm({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { groupTours, setGroupTours } = useAppData();

@@ -45,11 +45,20 @@ export function Shell({
   topAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const { session, setSession, team } = useAppData();
+  const { session, setSession, team, leads, requests, clientFeedback } = useAppData();
   const toast = useToast();
-  const isCeo = session?.type === 'ceo';
+  const isCeo = session?.type === 'ceo' || (session?.type === 'employee' && !!team.find(t => t.id === session.staffId)?.isAdmin);
   const me = session?.type === 'employee' ? team.find(t => t.id === session.staffId) : null;
   const title = TITLES[currentTab] || ['', ''];
+
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+  const overdueLeads = leads.filter(l => l.nextFollowUp && l.nextFollowUp <= todayStr && !['Converted', 'Lost'].includes(l.stage)).length;
+  const pendingRequests = requests.filter(r => r.status === 'Pending').length;
+  const urgentFeedback = clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length;
+  const BADGES: Record<string, number> = {
+    leads: overdueLeads,
+    hr: pendingRequests + urgentFeedback,
+  };
 
   async function logout() {
     await fetch('/api/logout', { method: 'POST' });
@@ -89,7 +98,12 @@ export function Shell({
                   }}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--gold)] flex-none" />
-                  {t.label}
+                  <span className="flex-1">{t.label}</span>
+                  {BADGES[t.id] > 0 && (
+                    <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full flex-none" style={{ background: 'var(--red)', color: '#fff' }}>
+                      {BADGES[t.id]}
+                    </span>
+                  )}
                 </button>
               ))
             : (
@@ -109,8 +123,10 @@ export function Shell({
         </nav>
 
         <div className="mt-auto pt-3.5 border-t border-white/10 text-[11.5px] text-[#8FBFA9]">
-          {isCeo
+          {session?.type === 'ceo'
             ? <>Signed in as <b className="text-white">CEO / Owner</b><br />Full access to every module.</>
+            : isCeo
+            ? <>Signed in as <b className="text-white">{me?.name}</b><br />Full admin access, granted by the owner.</>
             : <>Signed in as <b className="text-white">{me?.name}</b><br />You can only see your own work.</>}
         </div>
       </aside>

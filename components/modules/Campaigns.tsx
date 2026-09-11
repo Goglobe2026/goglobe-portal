@@ -4,6 +4,7 @@ import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today } from '@/lib/constants';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
+import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
 
 export function Campaigns() {
   const { campaigns, setCampaigns, leads } = useAppData();
@@ -44,11 +45,66 @@ export function Campaigns() {
           </table>
         </div>
       )}
+
+      <MarketingMaterialsLibrary />
+
       <Modal open={showNew} onClose={() => setShowNew(false)}>
         <ModalTitle>New campaign</ModalTitle>
         <NewCampaignForm onClose={() => setShowNew(false)} />
       </Modal>
     </div>
+  );
+}
+
+function MarketingMaterialsLibrary() {
+  const { marketingMaterials, setMarketingMaterials } = useAppData();
+  const toast = useToast();
+  const [name, setName] = useState('');
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { toast('Please choose a PDF file'); return; }
+    if (file.size > MAX_PDF_BYTES) { toast('PDF is too large — please keep it under 4MB'); return; }
+    if (!name.trim()) { toast('Give it a name first, e.g. "UK Tourist Visa Flyer"'); return; }
+    const dataUrl = await readFileAsDataUrl(file);
+    setMarketingMaterials(prev => [...prev, { id: genId('mm'), name: name.trim(), pdf: dataUrl, pdfName: file.name, uploadedAt: today() }]);
+    setName('');
+    e.target.value = '';
+    toast('Uploaded — staff can now send this to leads');
+  }
+
+  return (
+    <>
+      <SectionHead title="Marketing materials" count={`${marketingMaterials.length} uploaded — flyers, brochures, rate sheets staff can send to leads`} />
+      <div className="card mb-3.5">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Name this document"><input value={name} onChange={e => setName(e.target.value)} placeholder='e.g. "UK Tourist Visa Flyer"' /></Field>
+          <Field label="Upload PDF (under 4MB)"><input type="file" accept="application/pdf" onChange={handleFile} /></Field>
+        </div>
+      </div>
+      {marketingMaterials.length > 0 && (
+        <div className="card p-0 overflow-auto">
+          <table>
+            <thead><tr><th>Name</th><th>Uploaded</th><th></th></tr></thead>
+            <tbody>
+              {marketingMaterials.map(m => (
+                <tr key={m.id}>
+                  <td className="font-medium">{m.name}</td>
+                  <td className="font-mono-ui text-xs">{fmtDate(m.uploadedAt)}</td>
+                  <td>
+                    <div className="flex gap-1.5 justify-end">
+                      <a href={m.pdf} download={m.pdfName} className="btn btn-sm">Download</a>
+                      <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setMarketingMaterials(prev => prev.filter(x => x.id !== m.id))}>Remove</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 

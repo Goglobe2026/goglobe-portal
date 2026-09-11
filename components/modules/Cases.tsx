@@ -20,9 +20,20 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [paymentFor, setPaymentFor] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const toast = useToast();
 
   const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
+  function normalizeSearchPhone(p: string) { return (p || '').replace(/[^0-9]/g, '').replace(/^92/, '0'); }
+
+  const filtered = cases.filter(c => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    const qDigits = q.replace(/[^0-9]/g, '');
+    const nameMatch = c.name.toLowerCase().includes(q) || (c.referenceCode || '').toLowerCase().includes(q);
+    const phoneMatch = qDigits.length > 0 && normalizeSearchPhone(c.phone).includes(normalizeSearchPhone(qDigits));
+    return nameMatch || phoneMatch;
+  });
 
   // A converted lead should immediately open the "new case" form pre-filled.
   if (prefillFromLead && !showNew) { setShowNew(true); }
@@ -47,14 +58,23 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ Add case</button>
         </div>
       } />
-      {!cases.length ? (
-        <EmptyState title="No cases yet" body="Convert a lead, or add a case directly." />
+
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search by name, phone, or reference code…"
+        className="mb-3.5"
+        style={{ maxWidth: 360 }}
+      />
+
+      {!filtered.length ? (
+        <EmptyState title={cases.length ? 'No cases match your search' : 'No cases yet'} body={cases.length ? 'Try a different name, phone number, or reference code.' : 'Convert a lead, or add a case directly.'} />
       ) : (
         <div className="card p-0 overflow-auto">
           <table>
             <thead><tr><th>Client</th><th>Destination</th><th>Consultant</th><th>Case stage</th><th>Status</th><th>Documents</th><th>Appt payment</th><th>Overall charges</th><th></th></tr></thead>
             <tbody>
-              {cases.map(c => {
+              {filtered.map(c => {
                 const verified = c.documents.filter(d => d.status === 'Verified').length;
                 return (
                   <tr key={c.id}>

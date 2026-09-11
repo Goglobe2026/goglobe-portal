@@ -21,7 +21,7 @@ import { MyPortal } from '@/components/modules/MyPortal';
 import type { Lead } from '@/lib/types';
 
 function PortalApp() {
-  const { loading, connectionError, session } = useAppData();
+  const { loading, connectionError, session, team } = useAppData();
   const [tab, setTab] = useState('dashboard');
   const [prefillLead, setPrefillLead] = useState<Lead | null>(null);
 
@@ -40,7 +40,10 @@ function PortalApp() {
   }
   if (!session) return <LoginGate />;
 
-  if (session.type === 'employee') {
+  const myTeamRecord = session.type === 'employee' ? team.find(t => t.id === session.staffId) : null;
+  const isAdminEmployee = !!myTeamRecord?.isAdmin;
+
+  if (session.type === 'employee' && !isAdminEmployee) {
     return (
       <Shell currentTab="myportal" onTabChange={() => {}}>
         <MyPortal />

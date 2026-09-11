@@ -6,6 +6,7 @@ import { overallPaid } from './Cases';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { TeamMember } from '@/lib/types';
+import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 export function HR() {
@@ -60,7 +61,8 @@ export function HR() {
             {team.map(t => (
               <tr key={t.id} style={t.employmentStatus && t.employmentStatus !== 'Active' && t.employmentStatus !== 'On Leave' ? { opacity: 0.55 } : undefined}>
                 <td className="font-medium">
-                  {t.name}<div className="font-mono-ui text-xs">{t.employeeId}</div>
+                  {t.name}{t.isAdmin && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1.5" style={{ background: 'var(--red)', color: '#fff' }}>ADMIN</span>}
+                  <div className="font-mono-ui text-xs">{t.employeeId}</div>
                   {t.employmentStatus && t.employmentStatus !== 'Active' && (
                     <div className="mt-0.5"><Stamp text={t.employmentStatus} /></div>
                   )}
@@ -181,6 +183,8 @@ export function HR() {
           </div>
         </div>
       ))}
+
+      <PlaybookEditor />
 
       <Modal open={!!formStaff} onClose={() => setFormStaff(null)}>
         {formStaff && <EmployeeForm staff={formStaff === 'new' ? null : formStaff} onClose={() => setFormStaff(null)} />}
@@ -354,8 +358,14 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   const [monthlyQuota, setMonthlyQuota] = useState(t?.monthlyQuota ?? 5);
   const [performanceCategory, setPerformanceCategory] = useState<TeamMember['performanceCategory']>(t?.performanceCategory || 'Standard');
   const [employmentStatus, setEmploymentStatus] = useState<TeamMember['employmentStatus']>(t?.employmentStatus || 'Active');
+  const [isAdmin, setIsAdmin] = useState(t?.isAdmin || false);
   const [lastWorkingDay, setLastWorkingDay] = useState(t?.lastWorkingDay || '');
   const [monthlyAllowance, setMonthlyAllowance] = useState(t?.monthlyAllowance || 0);
+  const [guardianName, setGuardianName] = useState(t?.guardianName || '');
+  const [guardianPhone, setGuardianPhone] = useState(t?.guardianPhone || '');
+  const [address, setAddress] = useState(t?.address || '');
+  const [contractPdf, setContractPdf] = useState(t?.contractPdf || '');
+  const [contractPdfName, setContractPdfName] = useState(t?.contractPdfName || '');
 
   function save() {
     if (!name.trim()) { toast('Enter a name'); return; }
@@ -364,6 +374,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
       education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
       salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
       monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay, monthlyAllowance,
+      guardianName, guardianPhone, address, contractPdf, contractPdfName, isAdmin,
     };
     if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
     else setTeam(prev => [...prev, data]);
@@ -394,6 +405,16 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
                 : "Their full history (cases, payments, attendance) stays exactly as it is — they just can no longer log in, and won't show up when assigning new work."}
             </div>
           )}
+
+          <div className="card mb-3" style={{ background: isAdmin ? 'var(--red-50)' : '#F7F9FC' }}>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" className="!w-auto" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} />
+              <span className="text-[13px] font-medium">Give this person full admin access</span>
+            </label>
+            <div className="text-[11.5px] mt-1.5" style={{ color: isAdmin ? '#8a2020' : 'var(--faint)' }}>
+              This is the same as the CEO login — every module, every salary, every bank balance, and the ability to grant or remove this same access from anyone else, including you. Only turn this on for someone you'd trust with the owner's own PIN.
+            </div>
+          </div>
         </>
       )}
       <SectionHead title="Personal & contact details" />
@@ -402,6 +423,27 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
         <Field label="Phone"><input value={phone} onChange={e => setPhone(e.target.value)} /></Field>
       </div>
       <Field label="Email"><input value={email} onChange={e => setEmail(e.target.value)} /></Field>
+      <Field label="Address"><input value={address} onChange={e => setAddress(e.target.value)} placeholder="Home address" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Guardian's name"><input value={guardianName} onChange={e => setGuardianName(e.target.value)} placeholder="Father/husband/guardian" /></Field>
+        <Field label="Guardian's contact"><input value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)} /></Field>
+      </div>
+      <Field label="Employment contract (PDF, optional, under 4MB)">
+        <input type="file" accept="application/pdf" onChange={async e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          if (file.type !== 'application/pdf') { toast('Please choose a PDF file'); return; }
+          if (file.size > MAX_PDF_BYTES) { toast('PDF is too large — please keep it under 4MB'); return; }
+          const dataUrl = await readFileAsDataUrl(file);
+          setContractPdf(dataUrl); setContractPdfName(file.name);
+        }} />
+        {contractPdfName && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11.5px]" style={{ color: 'var(--green)' }}>Attached: {contractPdfName}</span>
+            <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => { setContractPdf(''); setContractPdfName(''); }}>Remove</button>
+          </div>
+        )}
+      </Field>
 
       <SectionHead title="Post, designation & role assignment" />
       <div className="grid grid-cols-2 gap-3">
@@ -465,6 +507,47 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={save}>{t ? 'Save changes' : 'Add employee'}</button>
       </ModalFoot>
+    </>
+  );
+}
+
+function PlaybookEditor() {
+  const { playbook, setPlaybook } = useAppData();
+  const toast = useToast();
+  const [draft, setDraft] = useState(playbook);
+  const [editing, setEditing] = useState(false);
+
+  function save() {
+    setPlaybook(draft);
+    setEditing(false);
+    toast('Playbook saved — every employee can now see this from their own portal');
+  }
+
+  return (
+    <>
+      <SectionHead title="Company playbook" count="responsibilities, follow-up mechanism, sales approach — visible to every employee" action={
+        !editing && <button className="btn btn-sm ml-auto" onClick={() => { setDraft(playbook); setEditing(true); }}>{playbook ? 'Edit' : '+ Write it'}</button>
+      } />
+      {editing ? (
+        <div className="card">
+          <div className="text-[11.5px] text-[var(--faint)] mb-2">
+            One shared document every employee can read from their own portal — responsibilities, how to run a follow-up, your sales approach, how you want clients handled, the points that actually convince someone to sign. Write it once here so every new hire has the same reference, in writing.
+          </div>
+          <textarea rows={16} value={draft} onChange={e => setDraft(e.target.value)} placeholder={"e.g.\n\nRESPONSIBILITIES\n...\n\nFOLLOW-UP MECHANISM\n...\n\nSALES APPROACH\n...\n\nCLIENT DEALING\n...\n\nKEY POINTS THAT CONVINCE CLIENTS\n..."} />
+          <div className="flex gap-2 mt-2.5">
+            <button className="btn btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn btn-sm btn-primary" onClick={save}>Save playbook</button>
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          {playbook ? (
+            <div className="text-[13px] whitespace-pre-wrap" style={{ lineHeight: 1.6 }}>{playbook}</div>
+          ) : (
+            <div className="text-[13px] text-[var(--muted)]">Nothing written yet — click &quot;+ Write it&quot; to create the reference document every employee will see in their own portal.</div>
+          )}
+        </div>
+      )}
     </>
   );
 }

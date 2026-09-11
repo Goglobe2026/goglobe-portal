@@ -13,6 +13,10 @@ export interface Lead {
   messages: { date: string; text: string; direction: 'In' | 'Out' }[];
   nextFollowUp: string;
   lastContacted: string;
+  escalated: boolean;
+  escalationReason: string;
+  escalationResolved: boolean;
+  lostReason: string;
 }
 
 export interface DocItem {
@@ -131,6 +135,14 @@ export interface ClientFeedback {
   reviewedByCeo: boolean;
 }
 
+export interface MarketingMaterial {
+  id: string;
+  name: string;
+  pdf: string;
+  pdfName: string;
+  uploadedAt: string;
+}
+
 export interface PersonalExpense {
   id: string;
   date: string;
@@ -178,6 +190,12 @@ export interface TeamMember {
   employmentStatus: 'Active' | 'On Leave' | 'Resigned' | 'Terminated';
   lastWorkingDay: string;
   monthlyAllowance: number;
+  guardianName: string;
+  guardianPhone: string;
+  address: string;
+  contractPdf: string;
+  contractPdfName: string;
+  isAdmin: boolean;
 }
 
 export interface Transaction {
@@ -294,6 +312,7 @@ export type Collections = {
   loans: Loan[];
   personalexpenses: PersonalExpense[];
   clientfeedback: ClientFeedback[];
+  marketingmaterials: MarketingMaterial[];
 };
 
 export type CollectionName = keyof Collections;

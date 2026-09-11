@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
     messages: [],
     nextFollowUp: today(),
     lastContacted: '',
+    escalated: false,
+    escalationReason: '',
+    escalationResolved: false,
+    lostReason: '',
   };
 
   const leads = readCollection('leads');
