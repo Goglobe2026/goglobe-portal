@@ -29,13 +29,14 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
 
   function remove(id: string) { setCases(prev => prev.filter(c => c.id !== id)); toast('Case deleted'); }
   function exportCases() {
-    exportToCsv('goglobe-cases', cases.map(c => ({
+    const ok = exportToCsv('goglobe-cases', cases.map(c => ({
       Client: c.name, Phone: c.phone, Destination: c.destination, 'Visa Type': c.visaType,
       Consultant: consultantName(c.consultant), 'Case Stage': c.caseStage, Status: c.status,
       'Overall Charge': overallCharge(c), 'Overall Paid': overallPaid(c), Discount: c.discount,
       'Documents Verified': `${c.documents.filter(d => d.status === 'Verified').length}/${c.documents.length}`,
       Created: c.createdAt,
     })));
+    if (!ok) toast('No cases yet to export');
   }
 
   return (

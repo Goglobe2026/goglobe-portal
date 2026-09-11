@@ -47,9 +47,12 @@ export function Accounts() {
 
       <SectionHead title="Ledger" count={`${transactions.length} entries`} action={
         <div className="flex gap-2 ml-auto">
-          <button className="btn btn-sm" onClick={() => exportToCsv('goglobe-ledger', transactions.map(t => ({
-            Date: t.date, Type: t.type, Category: t.category, Party: t.party, Amount: t.amount, Note: t.note,
-          })))}>Export CSV</button>
+          <button className="btn btn-sm" onClick={() => {
+            const ok = exportToCsv('goglobe-ledger', transactions.map(t => ({
+              Date: t.date, Type: t.type, Category: t.category, Party: t.party, Amount: t.amount, Note: t.note,
+            })));
+            if (!ok) toast('No ledger entries yet to export');
+          }}>Export CSV</button>
           <button className="btn btn-sm" onClick={() => setShowExpense(true)}>+ Add expense</button>
         </div>
       } />

@@ -2,7 +2,8 @@
 import { useState, useMemo } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
-import { exportToCsv } from '@/lib/csv';
+import { exportToCsv, parseCsv } from '@/lib/csv';
+import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping } from '@/lib/leadImport';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { Lead } from '@/lib/types';
@@ -19,6 +20,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const { leads, setLeads, team, campaigns, logActivity } = useAppData();
   const toast = useToast();
   const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [msgLead, setMsgLead] = useState<Lead | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
@@ -66,11 +68,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const selectedLeads = leads.filter(l => selected.has(l.id));
 
   function exportLeads() {
-    exportToCsv('goglobe-leads', leads.map(l => ({
+    const ok = exportToCsv('goglobe-leads', leads.map(l => ({
       Name: l.name, Phone: l.phone, Source: l.source, Campaign: l.campaign, Destination: l.destination,
       'Visa Type': l.visaType, Stage: l.stage, 'Assigned To': consultantName(l.assignedTo),
       'Created': l.createdAt, 'Next Follow-up': l.nextFollowUp, 'Last Contacted': l.lastContacted, Notes: l.notes,
     })));
+    if (!ok) toast('No leads yet to export');
   }
 
   return (
@@ -78,6 +81,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
       <SectionHead title="All leads" count={`${leads.length} total`} action={
         <div className="flex gap-2 ml-auto">
           <button className="btn" onClick={exportLeads}>Export CSV</button>
+          <button className="btn" onClick={() => setShowImport(true)}>Import CSV</button>
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New lead</button>
         </div>
       } />
@@ -161,6 +165,10 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
       <Modal open={showNew} onClose={() => setShowNew(false)}>
         <NewLeadForm onClose={() => setShowNew(false)} assignable={assignable} campaigns={campaigns} />
+      </Modal>
+
+      <Modal open={showImport} onClose={() => setShowImport(false)} wide>
+        <ImportLeadsForm onClose={() => setShowImport(false)} />
       </Modal>
 
       <Modal open={!!msgLead} onClose={() => setMsgLead(null)}>
@@ -522,6 +530,154 @@ function CountryNotesPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <ModalFoot><button className="btn btn-primary" onClick={onClose}>Close</button></ModalFoot>
+    </>
+  );
+}
+
+const IMPORT_FIELDS: { key: string; label: string; required: boolean }[] = [
+  { key: 'name', label: 'Full name', required: true },
+  { key: 'phone', label: 'Phone number', required: true },
+  { key: 'email', label: 'Email (optional)', required: false },
+  { key: 'destination', label: 'Country / destination (optional)', required: false },
+  { key: 'platform', label: 'Source / platform (optional)', required: false },
+  { key: 'campaign', label: 'Campaign (optional)', required: false },
+  { key: 'city', label: 'City (optional)', required: false },
+];
+
+function ImportLeadsForm({ onClose }: { onClose: () => void }) {
+  const { leads, setLeads } = useAppData();
+  const toast = useToast();
+  const [fileName, setFileName] = useState('');
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number } | null>(null);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setResult(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      const { headers: h, rows: r } = parseCsv(text);
+      setHeaders(h);
+      setRows(r);
+      setMapping(guessColumnMapping(h));
+    };
+    reader.readAsText(file);
+  }
+
+  function colIndex(field: string) {
+    const header = mapping[field];
+    return header ? headers.indexOf(header) : -1;
+  }
+
+  function runImport() {
+    const nameIdx = colIndex('name');
+    const phoneIdx = colIndex('phone');
+    if (nameIdx === -1 || phoneIdx === -1) { toast('Map at least Name and Phone before importing'); return; }
+
+    const emailIdx = colIndex('email');
+    const destIdx = colIndex('destination');
+    const platformIdx = colIndex('platform');
+    const campaignIdx = colIndex('campaign');
+    const cityIdx = colIndex('city');
+
+    const existingPhones = new Set(leads.map((l: Lead) => normalizePhone(l.phone)));
+    const newLeads: Lead[] = [];
+    let duplicates = 0, incomplete = 0;
+
+    for (const row of rows) {
+      const name = row[nameIdx]?.trim();
+      const rawPhone = normalizeImportPhone(row[phoneIdx] || '');
+      if (!name || !rawPhone) { incomplete++; continue; }
+      if (existingPhones.has(normalizePhone(rawPhone))) { duplicates++; continue; }
+
+      const noteParts: string[] = [];
+      if (emailIdx > -1 && row[emailIdx]) noteParts.push(`Email: ${row[emailIdx]}`);
+      if (cityIdx > -1 && row[cityIdx]) noteParts.push(`City: ${row[cityIdx]}`);
+
+      newLeads.push({
+        id: genId('ld'), name, phone: rawPhone,
+        source: platformIdx > -1 ? normalizePlatformSource(row[platformIdx]) : 'Website',
+        campaign: campaignIdx > -1 ? (row[campaignIdx] || '') : '',
+        destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
+        visaType: '', stage: 'New', assignedTo: '', createdAt: today(),
+        notes: noteParts.join(' · '), messages: [], nextFollowUp: today(), lastContacted: '',
+      });
+      existingPhones.add(normalizePhone(rawPhone)); // guard against duplicates within the file itself
+    }
+
+    if (newLeads.length) setLeads((prev: Lead[]) => [...prev, ...newLeads]);
+    setResult({ imported: newLeads.length, duplicates, incomplete });
+  }
+
+  return (
+    <>
+      <ModalTitle>Import leads from CSV</ModalTitle>
+
+      {!headers.length ? (
+        <>
+          <div className="text-[12.5px] text-[var(--muted)] mb-3">
+            Upload a CSV export — from Facebook Lead Ads, Excel (save as CSV), or Google Sheets (File → Download → CSV). No need to reformat anything first; you'll match the columns on the next screen.
+          </div>
+          <input type="file" accept=".csv,text/csv" onChange={handleFile} />
+        </>
+      ) : (
+        <>
+          <div className="text-[12.5px] text-[var(--muted)] mb-3">
+            <b>{fileName}</b> — found {rows.length} row{rows.length === 1 ? '' : 's'}. Columns were matched automatically where possible — check they're right, or change any that look wrong.
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {IMPORT_FIELDS.map(f => (
+              <Field key={f.key} label={f.label}>
+                <select value={mapping[f.key] || ''} onChange={e => setMapping(prev => ({ ...prev, [f.key]: e.target.value }))}>
+                  <option value="">— not in this file —</option>
+                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </Field>
+            ))}
+          </div>
+
+          {rows.length > 0 && (
+            <div className="mb-4">
+              <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)] mb-2">Preview — first 3 rows</div>
+              <div className="card p-0 overflow-auto">
+                <table>
+                  <thead><tr><th>Name</th><th>Phone</th><th>Destination</th><th>Source</th></tr></thead>
+                  <tbody>
+                    {rows.slice(0, 3).map((row, i) => (
+                      <tr key={i}>
+                        <td>{colIndex('name') > -1 ? row[colIndex('name')] : '—'}</td>
+                        <td className="font-mono-ui text-xs">{colIndex('phone') > -1 ? normalizeImportPhone(row[colIndex('phone')]) : '—'}</td>
+                        <td>{colIndex('destination') > -1 ? normalizeCountry(row[colIndex('destination')]) : '—'}</td>
+                        <td>{colIndex('platform') > -1 ? normalizePlatformSource(row[colIndex('platform')]) : 'Website'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <div className="card mb-4" style={{ background: 'var(--green-50)' }}>
+              <div className="text-[13px] font-medium" style={{ color: 'var(--green)' }}>
+                Imported {result.imported} new lead{result.imported === 1 ? '' : 's'}.
+                {result.duplicates > 0 && ` Skipped ${result.duplicates} — already existed (matching phone number).`}
+                {result.incomplete > 0 && ` Skipped ${result.incomplete} — missing a name or phone number.`}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>{result ? 'Close' : 'Cancel'}</button>
+        {headers.length > 0 && !result && <button className="btn btn-primary" onClick={runImport}>Import {rows.length} row{rows.length === 1 ? '' : 's'}</button>}
+      </ModalFoot>
     </>
   );
 }
