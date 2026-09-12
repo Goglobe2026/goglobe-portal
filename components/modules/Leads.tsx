@@ -21,6 +21,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const toast = useToast();
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSheetSync, setShowSheetSync] = useState(false);
   const [lostReasonFor, setLostReasonFor] = useState<string | null>(null);
   const [escalateFor, setEscalateFor] = useState<string | null>(null);
   const [showMaterialsFor, setShowMaterialsFor] = useState<string | null>(null);
@@ -94,6 +95,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         <div className="flex gap-2 ml-auto">
           <button className="btn" onClick={exportLeads}>Export CSV</button>
           <button className="btn" onClick={() => setShowImport(true)}>Import CSV</button>
+          <button className="btn" onClick={() => setShowSheetSync(true)}>Sync from Google Sheet</button>
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New lead</button>
         </div>
       } />
@@ -213,6 +215,10 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
       <Modal open={showImport} onClose={() => setShowImport(false)} wide>
         <ImportLeadsForm onClose={() => setShowImport(false)} />
+      </Modal>
+
+      <Modal open={showSheetSync} onClose={() => setShowSheetSync(false)}>
+        <SheetSyncForm onClose={() => setShowSheetSync(false)} />
       </Modal>
 
       <Modal open={!!msgLead} onClose={() => setMsgLead(null)}>
@@ -836,6 +842,68 @@ function SendMaterialsForm({ leadId, onClose }: { leadId: string; onClose: () =>
         Open WhatsApp with link ready to send
       </a>
       <ModalFoot><button className="btn" onClick={onClose}>Close</button></ModalFoot>
+    </>
+  );
+}
+
+function SheetSyncForm({ onClose }: { onClose: () => void }) {
+  const { sheetSyncUrl, setSheetSyncUrl } = useAppData();
+  const toast = useToast();
+  const [url, setUrl] = useState(sheetSyncUrl);
+  const [syncing, setSyncing] = useState(false);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number } | { error: string } | null>(null);
+
+  function save() {
+    setSheetSyncUrl(url.trim());
+    toast('Link saved');
+  }
+
+  async function syncNow() {
+    if (!url.trim()) { toast('Paste and save your published sheet link first'); return; }
+    setSyncing(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/sync-sheet', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) setResult({ error: data.error || 'Something went wrong' });
+      else setResult(data);
+    } catch {
+      setResult({ error: 'Could not reach the server' });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <>
+      <ModalTitle>Sync leads from Google Sheet</ModalTitle>
+      <div className="text-[12.5px] text-[var(--muted)] mb-3 leading-relaxed">
+        One-time setup in Google Sheets: <b>File → Share → Publish to web</b> → choose the sheet with your leads → set format to <b>Comma-separated values (.csv)</b> → click Publish. Paste the link it gives you below.
+      </div>
+      <Field label="Published sheet link">
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" />
+      </Field>
+      <button className="btn btn-sm mb-4" onClick={save}>Save link</button>
+
+      {result && 'error' in result && (
+        <div className="card mb-4" style={{ background: 'var(--red-50)' }}>
+          <div className="text-[13px]" style={{ color: 'var(--red)' }}>{result.error}</div>
+        </div>
+      )}
+      {result && 'imported' in result && (
+        <div className="card mb-4" style={{ background: 'var(--green-50)' }}>
+          <div className="text-[13px] font-medium" style={{ color: 'var(--green)' }}>
+            Imported {result.imported} new lead{result.imported === 1 ? '' : 's'}.
+            {result.duplicates > 0 && ` Skipped ${result.duplicates} already in the system.`}
+            {result.incomplete > 0 && ` Skipped ${result.incomplete} missing a name or phone.`}
+          </div>
+        </div>
+      )}
+
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Close</button>
+        <button className="btn btn-primary" onClick={syncNow} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+      </ModalFoot>
     </>
   );
 }

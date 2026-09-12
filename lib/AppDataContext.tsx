@@ -57,6 +57,7 @@ interface AppDataContextValue {
   marketingMaterials: MarketingMaterial[]; setMarketingMaterials: (u: Updater<MarketingMaterial[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
+  sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
   revenueGoal: string; setRevenueGoal: (u: Updater<string>) => void;
 
   logActivity: (t: string) => void;
@@ -99,6 +100,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const marketingMaterials = useSynced<MarketingMaterial[]>('marketingmaterials', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
+  const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
   const revenueGoal = useSynced<string>('revenuegoal', '10000000');
 
   const logActivity = useCallback((t: string) => {
@@ -115,7 +117,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         if (!sJson.session) { setLoading(false); return; }
 
         const results = await Promise.all(
-          [...COLLECTION_KEYS, 'ceopin', 'revenuegoal', 'playbook'].map(k =>
+          [...COLLECTION_KEYS, 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'].map(k =>
             fetch(`/api/data/${k}`).then(async r => {
               // A 403 means this account correctly isn't allowed to see this
               // particular collection (e.g. a regular employee and bank
@@ -128,7 +130,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, pin, goal, pb] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
@@ -137,6 +139,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         loans.setLocal(ln || []); personalExpenses.setLocal(pe || []); clientFeedback.setLocal(cf || []); marketingMaterials.setLocal(mm || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
+        sheetSyncUrl.setLocal(typeof ssu === 'string' ? ssu : '');
         revenueGoal.setLocal(typeof goal === 'string' ? goal : '10000000');
       } catch (e) {
         setConnectionError((e as Error).message);
@@ -174,6 +177,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     marketingMaterials: marketingMaterials.value, setMarketingMaterials: marketingMaterials.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
+    sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,
     revenueGoal: revenueGoal.value, setRevenueGoal: revenueGoal.setAndSave,
     logActivity,
   };

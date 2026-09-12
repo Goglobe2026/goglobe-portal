@@ -3,13 +3,13 @@ import { readCollection, writeCollection, readRaw, writeRaw } from '@/lib/store'
 import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 import type { CollectionName, TeamMember, Session } from '@/lib/types';
 
-const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook')[] = [
+const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook' | 'sheetsyncurl')[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'ceopin', 'revenuegoal', 'playbook',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
 ];
-const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook'];
+const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 
 // Collections with real financial or administrative sensitivity — off
 // limits entirely to a regular employee session, both reading and writing,
