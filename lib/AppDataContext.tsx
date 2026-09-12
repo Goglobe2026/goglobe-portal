@@ -116,16 +116,25 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
         const results = await Promise.all(
           [...COLLECTION_KEYS, 'ceopin', 'revenuegoal', 'playbook'].map(k =>
-            fetch(`/api/data/${k}`).then(r => { if (!r.ok) throw new Error(`${k}: ${r.status}`); return r.json(); })
+            fetch(`/api/data/${k}`).then(async r => {
+              // A 403 means this account correctly isn't allowed to see this
+              // particular collection (e.g. a regular employee and bank
+              // accounts) — that's expected and fine, not a broken app.
+              // Only a genuine failure (500, network drop, etc.) should stop
+              // the whole thing from loading.
+              if (r.status === 403) return null;
+              if (!r.ok) throw new Error(`${k}: ${r.status}`);
+              return r.json();
+            })
           )
         );
         const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, pin, goal, pb] = results;
-        leads.setLocal(l); cases.setLocal(c); appointments.setLocal(a); team.setLocal(tm);
-        transactions.setLocal(tx); campaigns.setLocal(cp); attendance.setLocal(att); rateCard.setLocal(rc);
-        adjustments.setLocal(adj); bankAccounts.setLocal(bk); journalVouchers.setLocal(jv);
-        requests.setLocal(req); activity.setLocal(act); testimonials.setLocal(tst); referralAgents.setLocal(ra);
-        groupTours.setLocal(gt); tourMembers.setLocal(tmem); countryNotes.setLocal(cn);
-        loans.setLocal(ln); personalExpenses.setLocal(pe); clientFeedback.setLocal(cf); marketingMaterials.setLocal(mm);
+        leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
+        transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
+        adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
+        requests.setLocal(req || []); activity.setLocal(act || []); testimonials.setLocal(tst || []); referralAgents.setLocal(ra || []);
+        groupTours.setLocal(gt || []); tourMembers.setLocal(tmem || []); countryNotes.setLocal(cn || []);
+        loans.setLocal(ln || []); personalExpenses.setLocal(pe || []); clientFeedback.setLocal(cf || []); marketingMaterials.setLocal(mm || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
         revenueGoal.setLocal(typeof goal === 'string' ? goal : '10000000');
