@@ -17,6 +17,9 @@ export interface Lead {
   escalationReason: string;
   escalationResolved: boolean;
   lostReason: string;
+  interestLevel: 'Hot' | 'Warm' | 'Cold' | 'Unrated';
+  isVip: boolean;
+  occupation: string;
 }
 
 export interface DocItem {
@@ -52,6 +55,7 @@ export interface Case {
   documents: DocItem[];
   coverLetterChecked: boolean;
   managerApproved: boolean;
+  caseType: string;
 }
 
 export interface ReferralAgent {

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, genId, today, getDocTemplate, DEFAULT_RATES, fmtDate } from '@/lib/constants';
+import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, CASE_TYPES, genId, today, getDocTemplate, DEFAULT_RATES, fmtDate } from '@/lib/constants';
 import { exportToCsv } from '@/lib/csv';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
@@ -41,7 +41,7 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
   function remove(id: string) { setCases(prev => prev.filter(c => c.id !== id)); toast('Case deleted'); }
   function exportCases() {
     const ok = exportToCsv('goglobe-cases', cases.map(c => ({
-      Client: c.name, Phone: c.phone, Destination: c.destination, 'Visa Type': c.visaType,
+      Client: c.name, Phone: c.phone, Destination: c.destination, 'Visa Type': c.visaType, 'Case Type': c.caseType,
       Consultant: consultantName(c.consultant), 'Case Stage': c.caseStage, Status: c.status,
       'Overall Charge': overallCharge(c), 'Overall Paid': overallPaid(c), Discount: c.discount,
       'Documents Verified': `${c.documents.filter(d => d.status === 'Verified').length}/${c.documents.length}`,
@@ -151,6 +151,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
   const [dest, setDest] = useState(fromLead?.destination || DESTINATIONS[0]);
   const [visaType, setVisaType] = useState(fromLead?.visaType || visaTypesFor(dest)[0]);
   const [consultant, setConsultant] = useState(fromLead?.assignedTo || team[0]?.id || '');
+  const [caseType, setCaseType] = useState<string>(CASE_TYPES[0]);
   const rate = getRate(rateCard, dest, visaType);
   const [fee, setFee] = useState(rate.visaFee); const [apptFee, setApptFee] = useState(rate.apptFee); const [consultFee, setConsultFee] = useState(rate.consultFee);
   const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
@@ -171,7 +172,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
       id: genId('cs'), referenceCode: genCaseRefCode(cases), name, phone, destination: dest, visaType, consultant, caseStage: 'Assessment', status: 'Active',
       fee, paid: 0, apptFee, apptPaid: 0, consultFee, consultPaid: 0, discount: 0, discountReason: '',
       costToExecute: 0, referralAgentId: '', referralCommissionPercent: 0, referralCommissionPaid: 0,
-      createdAt: today(), documents: getDocTemplate(dest, visaType), coverLetterChecked: false, managerApproved: false,
+      createdAt: today(), documents: getDocTemplate(dest, visaType), coverLetterChecked: false, managerApproved: false, caseType,
     }]);
     logActivity(`${name} — new case created`);
     onCreated(fromLead?.id || null);
@@ -190,6 +191,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
         <Field label="Destination"><select value={dest} onChange={e => changeDest(e.target.value)}>{DESTINATIONS.map(d => <option key={d}>{d}</option>)}</select></Field>
         <Field label="Visa type"><select value={visaType} onChange={e => changeVisaType(e.target.value)}>{visaTypesFor(dest).map(v => <option key={v}>{v}</option>)}</select></Field>
       </div>
+      <Field label="Case type (for your own records)"><select value={caseType} onChange={e => setCaseType(e.target.value)}>{CASE_TYPES.map(ct => <option key={ct}>{ct}</option>)}</select></Field>
       <Field label="Consultant"><select value={consultant} onChange={e => setConsultant(e.target.value)}>{assignable.map(t => <option key={t.id} value={t.id}>{t.name} — {t.role}</option>)}</select></Field>
       <div className="text-[11.5px] text-[var(--faint)] -mt-1 mb-3">Fees auto-fill from Pricing by country — adjust per client if needed.</div>
       <div className="grid grid-cols-3 gap-3">
@@ -212,6 +214,7 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
   const [name, setName] = useState(c.name); const [phone, setPhone] = useState(c.phone);
   const [dest, setDest] = useState(c.destination); const [visaType, setVisaType] = useState(c.visaType);
   const [consultant, setConsultant] = useState(c.consultant); const [caseStage, setCaseStage] = useState(c.caseStage);
+  const [caseType, setCaseType] = useState<string>(c.caseType || CASE_TYPES[0]);
   const [status, setStatus] = useState(c.status);
   const [discount, setDiscount] = useState(c.discount); const [discountReason, setDiscountReason] = useState(c.discountReason);
   const [newDocName, setNewDocName] = useState('');
@@ -260,7 +263,7 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
   }
   function saveDetails() {
     const oldDiscount = c.discount;
-    patchCase({ name, phone, destination: dest, visaType, consultant, caseStage, status, discount, discountReason, costToExecute, referralAgentId, referralCommissionPercent });
+    patchCase({ name, phone, destination: dest, visaType, consultant, caseStage, status, discount, discountReason, costToExecute, referralAgentId, referralCommissionPercent, caseType });
     if (discount !== oldDiscount) logActivity(`${name} — discount set to ${money(discount)}${discountReason ? ' (' + discountReason + ')' : ''}`);
     else logActivity(`${name} — case file updated`);
     toast('Case saved');
@@ -293,8 +296,9 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
         <Field label="Destination"><select value={dest} onChange={e => { setDest(e.target.value); setVisaType(visaTypesFor(e.target.value)[0]); }}>{DESTINATIONS.map(d => <option key={d}>{d}</option>)}</select></Field>
         <Field label="Visa type"><select value={visaType} onChange={e => setVisaType(e.target.value)}>{visaTypesFor(dest).map(v => <option key={v}>{v}</option>)}</select></Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="Consultant"><select value={consultant} onChange={e => setConsultant(e.target.value)}>{assignable.map(t => <option key={t.id} value={t.id}>{t.name} — {t.role}</option>)}</select></Field>
+        <Field label="Case type (for your own records)"><select value={caseType} onChange={e => setCaseType(e.target.value)}>{CASE_TYPES.map(ct => <option key={ct}>{ct}</option>)}</select></Field>
         <Field label="Case stage"><select value={caseStage} onChange={e => setCaseStage(e.target.value as Case['caseStage'])}>{CASE_STAGES.map(s => <option key={s}>{s}</option>)}</select></Field>
       </div>
       <Field label="Status"><select value={status} onChange={e => setStatus(e.target.value as Case['status'])}>{CASE_STATUSES.map(s => <option key={s}>{s}</option>)}</select></Field>

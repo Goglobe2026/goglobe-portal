@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
     escalationReason: '',
     escalationResolved: false,
     lostReason: '',
+    interestLevel: 'Unrated',
+    isVip: false,
+    occupation: '',
   };
 
   const leads = readCollection('leads');

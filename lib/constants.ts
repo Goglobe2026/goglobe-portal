@@ -67,6 +67,7 @@ export const DEFAULT_RATES: Record<string, [number, number]> = {
 };
 
 export const CASE_STAGES = ['Assessment', 'Documents', 'Manager Review', 'Appointment Booking', 'Submitted', 'Interview', 'Decision'] as const;
+export const CASE_TYPES = ['Standard Visa Consultancy', 'Student Visa Consultancy', 'Work Visa Consultancy', 'Business Visa Consultancy', 'Family/Spouse Visa Consultancy', 'Group Tour Booking', 'Document Assistance Only', 'Other'] as const;
 export const CASE_STATUSES = ['Active', 'Approved', 'Refused', 'Closed'] as const;
 export const LEAD_STAGES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const;
 export const APPT_STATUSES = ['Watching for slot', 'Scheduled', 'Completed', 'Missed'] as const;

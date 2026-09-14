@@ -18,11 +18,14 @@ import { Testimonials } from '@/components/modules/Testimonials';
 import { ReferralAgents } from '@/components/modules/ReferralAgents';
 import { GroupTours } from '@/components/modules/GroupTours';
 import { MyPortal } from '@/components/modules/MyPortal';
+import { ModuleHub } from '@/components/shell/ModuleHub';
+import { GroupDashboard } from '@/components/shell/GroupDashboard';
+import { NAV_GROUPS, isGroupHub } from '@/lib/navGroups';
 import type { Lead } from '@/lib/types';
 
 function PortalApp() {
   const { loading, connectionError, session, team } = useAppData();
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState('hub');
   const [prefillLead, setPrefillLead] = useState<Lead | null>(null);
 
   if (loading) {
@@ -62,6 +65,14 @@ function PortalApp() {
       onTabChange={setTab}
       topAction={tab !== 'cases' ? undefined : undefined}
     >
+      {tab === 'hub' && <ModuleHub onOpen={id => setTab(id)} />}
+      {isGroupHub(tab) && (
+        <GroupDashboard
+          group={NAV_GROUPS.find(g => g.id === tab)!}
+          onOpenTile={id => setTab(id)}
+          onBack={() => setTab('hub')}
+        />
+      )}
       {tab === 'dashboard' && <Dashboard />}
       {tab === 'leads' && <Leads onConvert={goToCasesWithLead} />}
       {tab === 'campaigns' && <Campaigns />}

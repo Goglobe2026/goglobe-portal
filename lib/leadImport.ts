@@ -40,6 +40,19 @@ export function normalizeImportPhone(raw: string): string {
   return String(raw || '').replace(/^p:/i, '').trim();
 }
 
+// Facebook's export gives a full timestamp like "2026-09-11T13:58:15-05:00"
+// — this pulls out just the date, so an imported lead is stamped with when
+// it actually came in, not whatever day someone happened to click "Sync."
+// Falls back to today's date if the value isn't a recognizable date at all.
+export function extractDateOnly(raw: string, todayFallback: string): string {
+  if (!raw) return todayFallback;
+  const match = String(raw).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return todayFallback;
+}
+
 // Tries to guess which uploaded column maps to which lead field, based on
 // common header naming patterns — including the exact Facebook Lead Ads
 // export headers this business actually uses.

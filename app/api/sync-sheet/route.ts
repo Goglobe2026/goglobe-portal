@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readCollection, writeCollection, readRaw } from '@/lib/store';
 import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 import { parseCsv } from '@/lib/csv';
-import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping } from '@/lib/leadImport';
+import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
 import { today } from '@/lib/constants';
 import type { Lead } from '@/lib/types';
 
@@ -41,12 +41,14 @@ export async function POST(req: NextRequest) {
   const platformIdx = mapping.platform ? headers.indexOf(mapping.platform) : -1;
   const campaignIdx = mapping.campaign ? headers.indexOf(mapping.campaign) : -1;
   const cityIdx = mapping.city ? headers.indexOf(mapping.city) : -1;
+  const createdTimeIdx = mapping.createdTime ? headers.indexOf(mapping.createdTime) : -1;
 
   const existingLeads = readCollection('leads') as Lead[];
   const seenPhones = new Set(existingLeads.map(l => normalizePhoneForDupeCheck(l.phone)));
 
   const newLeads: Lead[] = [];
   let duplicates = 0, incomplete = 0;
+  const todayStr = today();
 
   for (const row of rows) {
     const name = row[nameIdx]?.trim();
@@ -60,15 +62,18 @@ export async function POST(req: NextRequest) {
     if (emailIdx > -1 && row[emailIdx]) noteParts.push(`Email: ${row[emailIdx]}`);
     if (cityIdx > -1 && row[cityIdx]) noteParts.push(`City: ${row[cityIdx]}`);
 
+    const realCreatedAt = createdTimeIdx > -1 ? extractDateOnly(row[createdTimeIdx], todayStr) : todayStr;
+
     newLeads.push({
       id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
       name, phone: rawPhone,
       source: platformIdx > -1 ? normalizePlatformSource(row[platformIdx]) : 'Website',
       campaign: campaignIdx > -1 ? (row[campaignIdx] || '') : '',
       destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
-      visaType: '', stage: 'New', assignedTo: '', createdAt: today(),
-      notes: noteParts.join(' · '), messages: [], nextFollowUp: today(), lastContacted: '',
+      visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
+      notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
+      interestLevel: 'Unrated', isVip: false, occupation: '',
     });
   }
 

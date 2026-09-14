@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
 import { exportToCsv, parseCsv } from '@/lib/csv';
-import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping } from '@/lib/leadImport';
+import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { Lead } from '@/lib/types';
@@ -45,10 +45,16 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
   const dueCount = leads.filter(isOverdue).length;
   const [search, setSearch] = useState('');
+  const [newTodayOnly, setNewTodayOnly] = useState(false);
+  const [vipOnly, setVipOnly] = useState(false);
+  const todayStr = today();
+  const newTodayCount = leads.filter(l => l.createdAt === todayStr).length;
 
   const filtered = leads.filter(l => {
     if (countryFilter && l.destination !== countryFilter) return false;
     if (dueOnly && !isOverdue(l)) return false;
+    if (newTodayOnly && l.createdAt !== todayStr) return false;
+    if (vipOnly && !l.isVip) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const qDigits = q.replace(/[^0-9]/g, '');
@@ -57,6 +63,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
       if (!nameMatch && !phoneMatch) return false;
     }
     return true;
+  }).sort((a, b) => {
+    // VIPs always float to the top, then newest-first within each group —
+    // so a fresh batch of imported leads shows up front, not buried at the
+    // bottom under everything already worked.
+    if (a.isVip !== b.isVip) return a.isVip ? -1 : 1;
+    return b.createdAt.localeCompare(a.createdAt);
   });
 
   function updateStage(id: string, stage: Lead['stage']) {
@@ -126,6 +138,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         <button className="btn btn-sm" style={dueOnly ? { background: 'var(--red)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setDueOnly(!dueOnly)}>
           Follow-ups due {dueCount > 0 && `(${dueCount})`}
         </button>
+        <button className="btn btn-sm" style={newTodayOnly ? { background: 'var(--green)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setNewTodayOnly(!newTodayOnly)}>
+          New today {newTodayCount > 0 && `(${newTodayCount})`}
+        </button>
+        <button className="btn btn-sm" style={vipOnly ? { background: 'var(--gold)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setVipOnly(!vipOnly)}>
+          ★ VIP only
+        </button>
         <button className="btn btn-sm" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')}>
           {viewMode === 'list' ? 'Calendar view' : 'List view'}
         </button>
@@ -158,17 +176,36 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
           <table>
             <thead><tr>
               <th><input type="checkbox" className="!w-auto" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} /></th>
-              <th>Name</th><th>Source / campaign</th><th>Destination</th><th>Consultant</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th>
+              <th>Name</th><th>Source / campaign</th><th>Destination</th><th>Interest</th><th>Consultant</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th>
             </tr></thead>
             <tbody>
               {filtered.map(l => {
                 const overdue = isOverdue(l);
                 return (
-                  <tr key={l.id} style={overdue ? { background: 'var(--red-50)' } : undefined}>
+                  <tr key={l.id} style={overdue ? { background: 'var(--red-50)' } : l.isVip ? { background: 'var(--gold-50)' } : undefined}>
                     <td><input type="checkbox" className="!w-auto" checked={selected.has(l.id)} onChange={() => toggleSelect(l.id)} /></td>
-                    <td className="font-medium">{l.name}<div className="font-mono-ui text-xs text-[var(--muted)]">{l.phone}</div></td>
+                    <td className="font-medium">
+                      <div className="flex items-center gap-1.5">
+                        <button title={l.isVip ? 'Remove VIP' : 'Mark as VIP'} onClick={() => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, isVip: !x.isVip } : x))}
+                          style={{ color: l.isVip ? 'var(--gold)' : 'var(--line)', fontSize: 15, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>★</button>
+                        {l.name}
+                      </div>
+                      <div className="font-mono-ui text-xs text-[var(--muted)]">{l.phone}</div>
+                      <input className="!border-none !bg-transparent !p-0 text-[11px] text-[var(--faint)] mt-0.5" style={{ width: 110 }}
+                        value={l.occupation} placeholder="Occupation" onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, occupation: e.target.value } : x))} />
+                    </td>
                     <td>{l.source}{l.campaign && <div className="font-mono-ui text-xs" style={{ color: 'var(--gold)' }}>{l.campaign}</div>}</td>
                     <td>{l.destination}</td>
+                    <td>
+                      <select className="border-none bg-transparent font-medium p-0.5" style={{
+                        color: l.interestLevel === 'Hot' ? 'var(--red)' : l.interestLevel === 'Warm' ? 'var(--gold)' : l.interestLevel === 'Cold' ? 'var(--blue)' : 'var(--muted)'
+                      }} value={l.interestLevel || 'Unrated'} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, interestLevel: e.target.value as Lead['interestLevel'] } : x))}>
+                        <option value="Unrated">Unrated</option>
+                        <option value="Hot">🔥 Hot</option>
+                        <option value="Warm">Warm</option>
+                        <option value="Cold">Cold</option>
+                      </select>
+                    </td>
                     <td>
                       <select className="border-none bg-transparent font-medium p-0.5" value={l.assignedTo || ''} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, assignedTo: e.target.value } : x))}>
                         <option value="">Unassigned</option>
@@ -185,7 +222,10 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                       {overdue && <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--red)' }}>Overdue</div>}
                       {l.escalated && !l.escalationResolved && <div className="text-[10.5px] mt-0.5 font-medium" style={{ color: 'var(--gold)' }}>⚑ Escalated</div>}
                     </td>
-                    <td><button className="btn btn-sm btn-ghost" onClick={() => setMsgLead(l)}>{l.messages.length} logged</button></td>
+                    <td>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setMsgLead(l)}>{l.messages.length} logged</button>
+                      {l.messages.length > 0 && <div className="text-[10.5px] text-[var(--faint)] mt-0.5">Follow-up #{l.messages.length}</div>}
+                    </td>
                     <td>
                       <div className="flex gap-1.5 justify-end flex-wrap">
                         <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
@@ -330,6 +370,7 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
       id: genId('ld'), name, phone, source, campaign, destination: dest, visaType, stage: 'New',
       assignedTo, createdAt: today(), notes, messages: [], nextFollowUp, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
+      interestLevel: 'Unrated', isVip: false, occupation: '',
     }]);
     logActivity(`New lead: ${name}`);
     toast('Lead added');
@@ -605,6 +646,7 @@ const IMPORT_FIELDS: { key: string; label: string; required: boolean }[] = [
   { key: 'platform', label: 'Source / platform (optional)', required: false },
   { key: 'campaign', label: 'Campaign (optional)', required: false },
   { key: 'city', label: 'City (optional)', required: false },
+  { key: 'createdTime', label: 'Date lead came in (optional — uses today if not mapped)', required: false },
 ];
 
 function ImportLeadsForm({ onClose }: { onClose: () => void }) {
@@ -647,10 +689,12 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
     const platformIdx = colIndex('platform');
     const campaignIdx = colIndex('campaign');
     const cityIdx = colIndex('city');
+    const createdTimeIdx = colIndex('createdTime');
 
     const existingPhones = new Set(leads.map((l: Lead) => normalizePhone(l.phone)));
     const newLeads: Lead[] = [];
     let duplicates = 0, incomplete = 0;
+    const todayStr = today();
 
     for (const row of rows) {
       const name = row[nameIdx]?.trim();
@@ -662,14 +706,17 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
       if (emailIdx > -1 && row[emailIdx]) noteParts.push(`Email: ${row[emailIdx]}`);
       if (cityIdx > -1 && row[cityIdx]) noteParts.push(`City: ${row[cityIdx]}`);
 
+      const realCreatedAt = createdTimeIdx > -1 ? extractDateOnly(row[createdTimeIdx], todayStr) : todayStr;
+
       newLeads.push({
         id: genId('ld'), name, phone: rawPhone,
         source: platformIdx > -1 ? normalizePlatformSource(row[platformIdx]) : 'Website',
         campaign: campaignIdx > -1 ? (row[campaignIdx] || '') : '',
         destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
-        visaType: '', stage: 'New', assignedTo: '', createdAt: today(),
-        notes: noteParts.join(' · '), messages: [], nextFollowUp: today(), lastContacted: '',
+        visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
+        notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
         escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
+        interestLevel: 'Unrated', isVip: false, occupation: '',
       });
       existingPhones.add(normalizePhone(rawPhone)); // guard against duplicates within the file itself
     }
