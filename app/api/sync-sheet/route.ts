@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
       notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
-      interestLevel: 'Unrated', isVip: false, occupation: '',
+      interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
     });
   }
 

@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     interestLevel: 'Unrated',
     isVip: false,
     occupation: '',
+    lastEngagementSent: '',
   };
 
   const leads = readCollection('leads');

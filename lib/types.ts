@@ -10,16 +10,17 @@ export interface Lead {
   assignedTo: string;
   createdAt: string;
   notes: string;
-  messages: { date: string; text: string; direction: 'In' | 'Out' }[];
+  messages: { date: string; text: string; direction: 'In' | 'Out'; responded?: 'Yes' | 'No' | null }[];
   nextFollowUp: string;
   lastContacted: string;
   escalated: boolean;
   escalationReason: string;
   escalationResolved: boolean;
   lostReason: string;
-  interestLevel: 'Hot' | 'Warm' | 'Cold' | 'Unrated';
+  interestLevel: 'High' | 'Medium' | 'Low' | 'Unrated';
   isVip: boolean;
   occupation: string;
+  lastEngagementSent: string;
 }
 
 export interface DocItem {
@@ -145,6 +146,13 @@ export interface MarketingMaterial {
   pdf: string;
   pdfName: string;
   uploadedAt: string;
+}
+
+export interface FollowUpTemplate {
+  id: string;
+  followUpNumber: number;
+  message: string;
+  daysUntilNext: number;
 }
 
 export interface PersonalExpense {
@@ -317,6 +325,7 @@ export type Collections = {
   personalexpenses: PersonalExpense[];
   clientfeedback: ClientFeedback[];
   marketingmaterials: MarketingMaterial[];
+  followuptemplates: FollowUpTemplate[];
 };
 
 export type CollectionName = keyof Collections;

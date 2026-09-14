@@ -7,7 +7,7 @@ const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook'
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
 ];
 const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 

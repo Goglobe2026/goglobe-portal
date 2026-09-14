@@ -6,7 +6,7 @@ import { exportToCsv, parseCsv } from '@/lib/csv';
 import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { Lead } from '@/lib/types';
+import type { Lead, FollowUpTemplate } from '@/lib/types';
 
 function waLink(phone: string, text: string) {
   const digits = (phone || '').replace(/[^0-9]/g, '').replace(/^0/, '92');
@@ -17,11 +17,13 @@ function isOverdue(l: Lead) {
 }
 
 export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
-  const { leads, setLeads, team, campaigns, logActivity } = useAppData();
+  const { leads, setLeads, team, campaigns, followUpTemplates, logActivity } = useAppData();
   const toast = useToast();
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSheetSync, setShowSheetSync] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showEngagement, setShowEngagement] = useState(false);
   const [lostReasonFor, setLostReasonFor] = useState<string | null>(null);
   const [escalateFor, setEscalateFor] = useState<string | null>(null);
   const [showMaterialsFor, setShowMaterialsFor] = useState<string | null>(null);
@@ -47,14 +49,23 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const [search, setSearch] = useState('');
   const [newTodayOnly, setNewTodayOnly] = useState(false);
   const [vipOnly, setVipOnly] = useState(false);
+  const [engagementDueOnly, setEngagementDueOnly] = useState(false);
   const todayStr = today();
   const newTodayCount = leads.filter(l => l.createdAt === todayStr).length;
+  function isDueForEngagement(l: Lead) {
+    if (['Converted', 'Lost'].includes(l.stage)) return false;
+    if (!l.lastEngagementSent) return true;
+    const days = Math.floor((Date.now() - new Date(l.lastEngagementSent).getTime()) / 86400000);
+    return days >= 15;
+  }
+  const engagementDueCount = leads.filter(isDueForEngagement).length;
 
   const filtered = leads.filter(l => {
     if (countryFilter && l.destination !== countryFilter) return false;
     if (dueOnly && !isOverdue(l)) return false;
     if (newTodayOnly && l.createdAt !== todayStr) return false;
     if (vipOnly && !l.isVip) return false;
+    if (engagementDueOnly && !isDueForEngagement(l)) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const qDigits = q.replace(/[^0-9]/g, '');
@@ -144,14 +155,21 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         <button className="btn btn-sm" style={vipOnly ? { background: 'var(--gold)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setVipOnly(!vipOnly)}>
           ★ VIP only
         </button>
+        <button className="btn btn-sm" style={engagementDueOnly ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setEngagementDueOnly(!engagementDueOnly)}>
+          Due for engagement {engagementDueCount > 0 && `(${engagementDueCount})`}
+        </button>
         <button className="btn btn-sm" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')}>
           {viewMode === 'list' ? 'Calendar view' : 'List view'}
         </button>
         <button className="btn btn-sm" onClick={() => setShowCountryNotes(true)}>Country updates</button>
+        <button className="btn btn-sm" onClick={() => setShowTemplates(true)}>Follow-up messages</button>
         {selected.size > 0 && (
           <>
             <button className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} onClick={() => setShowQueue(true)}>
               WhatsApp follow-up ({selected.size} selected)
+            </button>
+            <button className="btn btn-sm" style={{ background: 'var(--navy)', color: '#fff' }} onClick={() => setShowEngagement(true)}>
+              Send engagement update ({selected.size} selected)
             </button>
             <select className="btn btn-sm" defaultValue="" onChange={e => {
               if (!e.target.value) return;
@@ -173,7 +191,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         <EmptyState title={leads.length ? 'No leads match this filter' : 'No leads yet'} body="Add your first enquiry from WhatsApp, the website form or a referral." />
       ) : (
         <div className="card p-0 overflow-auto">
-          <table>
+          <table style={{ minWidth: 1400 }}>
             <thead><tr>
               <th><input type="checkbox" className="!w-auto" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} /></th>
               <th>Name</th><th>Source / campaign</th><th>Destination</th><th>Interest</th><th>Consultant</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th>
@@ -198,12 +216,13 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                     <td>{l.destination}</td>
                     <td>
                       <select className="border-none bg-transparent font-medium p-0.5" style={{
-                        color: l.interestLevel === 'Hot' ? 'var(--red)' : l.interestLevel === 'Warm' ? 'var(--gold)' : l.interestLevel === 'Cold' ? 'var(--blue)' : 'var(--muted)'
+                        minWidth: 84,
+                        color: l.interestLevel === 'High' ? 'var(--red)' : l.interestLevel === 'Medium' ? 'var(--gold)' : l.interestLevel === 'Low' ? 'var(--blue)' : 'var(--muted)'
                       }} value={l.interestLevel || 'Unrated'} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, interestLevel: e.target.value as Lead['interestLevel'] } : x))}>
                         <option value="Unrated">Unrated</option>
-                        <option value="Hot">🔥 Hot</option>
-                        <option value="Warm">Warm</option>
-                        <option value="Cold">Cold</option>
+                        <option value="High">🔥 High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
                       </select>
                     </td>
                     <td>
@@ -229,7 +248,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                     <td>
                       <div className="flex gap-1.5 justify-end flex-wrap">
                         <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
-                          href={waLink(l.phone, `Hello ${l.name}, this is GoGlobe Consultant regarding your ${l.destination} visa enquiry.`)}>WhatsApp</a>
+                          href={waLink(l.phone, pickFollowUpMessage(l, followUpTemplates))}>WhatsApp</a>
                         <button className="btn btn-sm" onClick={() => onConvert(l)}>Convert</button>
                         <button className="btn btn-sm" onClick={() => setShowMaterialsFor(l.id)}>Send materials</button>
                         {!l.escalated || l.escalationResolved ? (
@@ -259,6 +278,14 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
       <Modal open={showSheetSync} onClose={() => setShowSheetSync(false)}>
         <SheetSyncForm onClose={() => setShowSheetSync(false)} />
+      </Modal>
+
+      <Modal open={showTemplates} onClose={() => setShowTemplates(false)} wide>
+        <FollowUpTemplatesManager onClose={() => setShowTemplates(false)} />
+      </Modal>
+
+      <Modal open={showEngagement} onClose={() => { setShowEngagement(false); }} wide>
+        {showEngagement && <EngagementBroadcast leads={leads.filter(l => selected.has(l.id))} onClose={() => { setShowEngagement(false); setSelected(new Set()); }} />}
       </Modal>
 
       <Modal open={!!msgLead} onClose={() => setMsgLead(null)}>
@@ -293,14 +320,16 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 }
 
 function WhatsAppQueue({ leads, onClose }: { leads: Lead[]; onClose: () => void }) {
-  const { setLeads } = useAppData();
+  const { setLeads, followUpTemplates } = useAppData();
   const [index, setIndex] = useState(0);
   const current = leads[index];
   const done = index >= leads.length;
 
   function markContactedAndNext() {
+    const followUpNumberJustSent = current.messages.length + 1;
+    const suggestedNext = suggestedNextFollowUpDate(followUpNumberJustSent, followUpTemplates);
     setLeads(prev => prev.map(l => l.id === current.id
-      ? { ...l, lastContacted: today(), messages: [...l.messages, { date: today(), text: 'Followed up via WhatsApp', direction: 'Out' as const }] }
+      ? { ...l, lastContacted: today(), nextFollowUp: suggestedNext, messages: [...l.messages, { date: today(), text: 'Followed up via WhatsApp', direction: 'Out' as const, responded: null }] }
       : l));
     setIndex(i => i + 1);
   }
@@ -337,10 +366,13 @@ function WhatsAppQueue({ leads, onClose }: { leads: Lead[]; onClose: () => void 
         className="btn btn-primary w-full mb-3 text-center block"
         style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)' }}
         target="_blank"
-        href={waLink(current.phone, `Hello ${current.name}, this is GoGlobe Consultant following up on your ${current.destination} visa enquiry. Is now a good time to talk?`)}
+        href={waLink(current.phone, pickFollowUpMessage(current, followUpTemplates))}
       >
         Open WhatsApp for {current.name}
       </a>
+      <div className="text-[11.5px] text-[var(--faint)] mb-3">
+        Marking this contacted will schedule the next follow-up for <b>{fmtDate(suggestedNextFollowUpDate(current.messages.length + 1, followUpTemplates))}</b>.
+      </div>
       <ModalFoot>
         <button className="btn" onClick={skip}>Skip</button>
         <button className="btn btn-primary" onClick={markContactedAndNext}>Mark contacted &amp; next</button>
@@ -350,6 +382,34 @@ function WhatsAppQueue({ leads, onClose }: { leads: Lead[]; onClose: () => void 
 }
 
 function normalizePhone(p: string) { return (p || '').replace(/[^0-9]/g, '').replace(/^92/, '0'); }
+
+// After sending the Nth follow-up, suggests when the (N+1)th should happen,
+// based on the cadence set in Follow-up Messages — falls back to a
+// reasonable 3-day gap if that stage was never configured.
+function suggestedNextFollowUpDate(followUpNumberJustSent: number, templates: FollowUpTemplate[]): string {
+  const template = templates.find(t => t.followUpNumber === followUpNumberJustSent);
+  const days = template?.daysUntilNext ?? 3;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Picks the right message for wherever this lead is in the follow-up
+// sequence — 1st contact gets the "1st follow-up" template, 2nd gets the
+// "2nd" one, and so on. Falls back to a sensible generic message if no
+// template has been written for that stage yet, so this never blocks
+// someone from reaching out.
+function pickFollowUpMessage(lead: Lead, templates: FollowUpTemplate[]): string {
+  const followUpNumber = lead.messages.length + 1;
+  const exact = templates.find(t => t.followUpNumber === followUpNumber);
+  if (exact) return exact.message.replace(/\{name\}/gi, lead.name).replace(/\{destination\}/gi, lead.destination);
+  // Beyond the highest numbered template written, keep reusing the last one
+  const highest = [...templates].sort((a, b) => b.followUpNumber - a.followUpNumber)[0];
+  if (highest && followUpNumber > highest.followUpNumber) {
+    return highest.message.replace(/\{name\}/gi, lead.name).replace(/\{destination\}/gi, lead.destination);
+  }
+  return `Hello ${lead.name}, this is GoGlobe Consultant regarding your ${lead.destination} visa enquiry. Is now a good time to talk?`;
+}
 
 function NewLeadForm({ onClose, assignable, campaigns }: any) {
   const { leads, cases, setLeads, logActivity } = useAppData();
@@ -370,7 +430,7 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
       id: genId('ld'), name, phone, source, campaign, destination: dest, visaType, stage: 'New',
       assignedTo, createdAt: today(), notes, messages: [], nextFollowUp, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
-      interestLevel: 'Unrated', isVip: false, occupation: '',
+      interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
     }]);
     logActivity(`New lead: ${name}`);
     toast('Lead added');
@@ -440,8 +500,13 @@ function MessageLog({ lead, onClose }: { lead: Lead; onClose: () => void }) {
 
   function add() {
     if (!text.trim()) { toast('Enter a message'); return; }
-    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, messages: [...l.messages, { date: today(), text, direction }] } : l));
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, messages: [...l.messages, { date: today(), text, direction, responded: null }] } : l));
     setText('');
+  }
+  function setResponded(messageIndex: number, responded: 'Yes' | 'No') {
+    setLeads(prev => prev.map(l => l.id === lead.id
+      ? { ...l, messages: l.messages.map((m, i) => i === messageIndex ? { ...m, responded: m.responded === responded ? null : responded } : m) }
+      : l));
   }
   const current = useAppData().leads.find(l => l.id === lead.id) || lead;
 
@@ -452,7 +517,16 @@ function MessageLog({ lead, onClose }: { lead: Lead; onClose: () => void }) {
         {current.messages.length ? current.messages.map((m, i) => (
           <div key={i} className="flex gap-2.5 py-2 border-b last:border-0 items-start" style={{ borderColor: 'var(--line)' }}>
             <Stamp text={m.direction === 'In' ? 'New' : 'Active'} className="!transform-none" />
-            <span className="flex-1">{m.text}<div className="font-mono-ui text-xs mt-0.5">{m.date}</div></span>
+            <span className="flex-1">
+              {m.text}<div className="font-mono-ui text-xs mt-0.5">{m.date}</div>
+              {m.direction === 'Out' && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-[11px] text-[var(--faint)]">Did they respond?</span>
+                  <button className="btn btn-sm" style={m.responded === 'Yes' ? { background: 'var(--green)', color: '#fff' } : {}} onClick={() => setResponded(i, 'Yes')}>Yes</button>
+                  <button className="btn btn-sm" style={m.responded === 'No' ? { background: 'var(--red)', color: '#fff' } : {}} onClick={() => setResponded(i, 'No')}>No</button>
+                </div>
+              )}
+            </span>
           </div>
         )) : <div className="text-[var(--muted)] py-2.5">No messages logged yet.</div>}
       </div>
@@ -716,7 +790,7 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
         visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
         notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
         escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
-        interestLevel: 'Unrated', isVip: false, occupation: '',
+        interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
       });
       existingPhones.add(normalizePhone(rawPhone)); // guard against duplicates within the file itself
     }
@@ -950,6 +1024,150 @@ function SheetSyncForm({ onClose }: { onClose: () => void }) {
       <ModalFoot>
         <button className="btn" onClick={onClose}>Close</button>
         <button className="btn btn-primary" onClick={syncNow} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+const FOLLOWUP_SLOTS = [1, 2, 3, 4, 5];
+
+const DEFAULT_CADENCE: Record<number, number> = { 1: 2, 2: 3, 3: 3, 4: 3, 5: 5 };
+
+function FollowUpTemplatesManager({ onClose }: { onClose: () => void }) {
+  const { followUpTemplates, setFollowUpTemplates } = useAppData();
+  const toast = useToast();
+  const [drafts, setDrafts] = useState<Record<number, string>>(() => {
+    const initial: Record<number, string> = {};
+    for (const n of FOLLOWUP_SLOTS) {
+      initial[n] = followUpTemplates.find(t => t.followUpNumber === n)?.message || '';
+    }
+    return initial;
+  });
+  const [cadence, setCadence] = useState<Record<number, number>>(() => {
+    const initial: Record<number, number> = {};
+    for (const n of FOLLOWUP_SLOTS) {
+      initial[n] = followUpTemplates.find(t => t.followUpNumber === n)?.daysUntilNext ?? DEFAULT_CADENCE[n];
+    }
+    return initial;
+  });
+
+  function save() {
+    const updated: FollowUpTemplate[] = FOLLOWUP_SLOTS.map(n => ({
+      id: followUpTemplates.find(t => t.followUpNumber === n)?.id || genId('fut'),
+      followUpNumber: n,
+      message: (drafts[n] || '').trim(),
+      daysUntilNext: cadence[n] ?? DEFAULT_CADENCE[n],
+    }));
+    setFollowUpTemplates(updated);
+    toast('Follow-up messages saved');
+    onClose();
+  }
+
+  return (
+    <>
+      <ModalTitle>Follow-up messages</ModalTitle>
+      <div className="text-[12.5px] text-[var(--muted)] mb-4 leading-relaxed">
+        Write the message for each stage of contact, once. The WhatsApp button on a lead automatically picks the right one based on how many times they've already been reached. Use <b>{'{name}'}</b> and <b>{'{destination}'}</b> anywhere you want those filled in automatically. Leave a message blank to use a simple generic one instead. The day count controls when the <b>next</b> follow-up gets suggested after this one is sent.
+      </div>
+      {FOLLOWUP_SLOTS.map(n => (
+        <div key={n} className="grid gap-3 mb-1" style={{ gridTemplateColumns: '1fr 140px' }}>
+          <Field label={`${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'} follow-up message`}>
+            <textarea rows={2} value={drafts[n]} onChange={e => setDrafts(prev => ({ ...prev, [n]: e.target.value }))}
+              placeholder={n === 1 ? 'e.g. Hi {name}, thank you for your interest in {destination} — we would love to help you get there.' : 'e.g. Hi {name}, just checking in about your {destination} plans...'} />
+          </Field>
+          <Field label="Next follow-up in">
+            <div className="flex items-center gap-1.5">
+              <input type="number" min={1} value={cadence[n]} onChange={e => setCadence(prev => ({ ...prev, [n]: Number(e.target.value) || 1 }))} />
+              <span className="text-[12.5px] text-[var(--muted)]">days</span>
+            </div>
+          </Field>
+        </div>
+      ))}
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save messages</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function EngagementBroadcast({ leads, onClose }: { leads: Lead[]; onClose: () => void }) {
+  const { setLeads } = useAppData();
+  const [message, setMessage] = useState('');
+  const [index, setIndex] = useState(0);
+  const [started, setStarted] = useState(false);
+  const current = leads[index];
+  const done = started && index >= leads.length;
+
+  function personalized(l: Lead) {
+    return message.replace(/\{name\}/gi, l.name).replace(/\{destination\}/gi, l.destination);
+  }
+  function markSentAndNext() {
+    setLeads(prev => prev.map(l => l.id === current.id
+      ? { ...l, lastEngagementSent: today(), messages: [...l.messages, { date: today(), text: 'Engagement update sent', direction: 'Out' as const }] }
+      : l));
+    setIndex(i => i + 1);
+  }
+  function skip() { setIndex(i => i + 1); }
+
+  if (!started) {
+    return (
+      <>
+        <ModalTitle>Send an engagement update</ModalTitle>
+        <div className="text-[12.5px] text-[var(--muted)] mb-3 leading-relaxed">
+          A periodic touch to stay present in {leads.length} client{leads.length === 1 ? "'s" : "s'"} mind while they wait — your visa approval rate, a quick reassurance, a seasonal update. This is what keeps them choosing you over a competitor. Use <b>{'{name}'}</b> and <b>{'{destination}'}</b> to personalize automatically.
+        </div>
+        <Field label="Your message">
+          <textarea rows={5} value={message} onChange={e => setMessage(e.target.value)}
+            placeholder="e.g. Hi {name}, quick update from GoGlobe — our approval rate for {destination} applications this quarter is 94%. We're right here with you through the process. Any questions, just message us anytime." />
+        </Field>
+        <ModalFoot>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => { if (!message.trim()) return; setStarted(true); }} disabled={!message.trim()}>
+            Start sending to {leads.length}
+          </button>
+        </ModalFoot>
+      </>
+    );
+  }
+
+  if (done) {
+    return (
+      <>
+        <ModalTitle>All done</ModalTitle>
+        <p style={{ marginBottom: 16 }}>You&apos;ve gone through all {leads.length} selected leads.</p>
+        <ModalFoot><button className="btn btn-primary" onClick={onClose}>Close</button></ModalFoot>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex justify-between items-center mb-1">
+        <ModalTitle>Sending engagement update</ModalTitle>
+        <span className="text-[12.5px] text-[var(--muted)] font-mono-ui">{index + 1} of {leads.length}</span>
+      </div>
+      <div className="flex gap-1 mb-4">
+        {leads.map((_, i) => (
+          <span key={i} className="h-1.5 flex-1 rounded-full" style={{ background: i <= index ? 'var(--navy)' : 'var(--line)' }} />
+        ))}
+      </div>
+      <div className="card mb-4">
+        <div className="font-display font-semibold text-lg">{current.name}</div>
+        <div className="text-[var(--muted)] text-sm mt-1">{current.destination} · {current.phone}</div>
+        <div className="text-sm mt-3 whitespace-pre-wrap">{personalized(current)}</div>
+      </div>
+      <a
+        className="btn btn-primary w-full mb-3 text-center block"
+        style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)' }}
+        target="_blank"
+        href={waLink(current.phone, personalized(current))}
+      >
+        Open WhatsApp for {current.name}
+      </a>
+      <ModalFoot>
+        <button className="btn" onClick={skip}>Skip</button>
+        <button className="btn btn-primary" onClick={markSentAndNext}>Mark sent &amp; next</button>
       </ModalFoot>
     </>
   );

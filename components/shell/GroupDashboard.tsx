@@ -16,11 +16,14 @@ function useGroupStats(groupId: string) {
 
   if (groupId === 'grp-marketing') {
     const overdue = leads.filter(l => l.nextFollowUp && l.nextFollowUp <= todayStr && !['Converted', 'Lost'].includes(l.stage)).length;
+    const tagged = leads.flatMap(l => l.messages).filter(m => m.direction === 'Out' && (m.responded === 'Yes' || m.responded === 'No'));
+    const responded = tagged.filter(m => m.responded === 'Yes').length;
+    const responseRate = tagged.length > 0 ? `${Math.round((responded / tagged.length) * 100)}%` : '—';
     return [
       { label: 'Total leads', value: String(leads.length) },
       { label: 'New today', value: String(leads.filter(l => l.createdAt === todayStr).length) },
       { label: 'Follow-ups due', value: String(overdue) },
-      { label: 'Escalated', value: String(leads.filter(l => l.escalated && !l.escalationResolved).length) },
+      { label: 'Response rate', value: responseRate },
     ];
   }
   if (groupId === 'grp-cases') {
