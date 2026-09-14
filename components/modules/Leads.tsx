@@ -1,9 +1,10 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
 import { exportToCsv, parseCsv } from '@/lib/csv';
 import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { Lead, FollowUpTemplate } from '@/lib/types';
@@ -27,6 +28,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const [lostReasonFor, setLostReasonFor] = useState<string | null>(null);
   const [escalateFor, setEscalateFor] = useState<string | null>(null);
   const [showMaterialsFor, setShowMaterialsFor] = useState<string | null>(null);
+  const [scheduleVisitFor, setScheduleVisitFor] = useState<string | null>(null);
   const [msgLead, setMsgLead] = useState<Lead | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
@@ -82,6 +84,13 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     return b.createdAt.localeCompare(a.createdAt);
   });
 
+  const PAGE_SIZE = 30;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageStart = (page - 1) * PAGE_SIZE;
+  const paginated = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  useEffect(() => { setPage(1); }, [countryFilter, dueOnly, newTodayOnly, vipOnly, engagementDueOnly, search]);
+
   function updateStage(id: string, stage: Lead['stage']) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, stage } : l));
     logActivity(`Lead moved to ${stage}`);
@@ -98,7 +107,17 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
   function toggleSelectAll() {
-    setSelected(prev => prev.size === filtered.length ? new Set() : new Set(filtered.map(l => l.id)));
+    // Select-all only applies to the current page — silently selecting all
+    // 200+ leads across every page would be a surprising, risky footgun for
+    // whatever bulk action comes next.
+    const pageIds = paginated.map(l => l.id);
+    const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.has(id));
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allPageSelected) pageIds.forEach(id => next.delete(id));
+      else pageIds.forEach(id => next.add(id));
+      return next;
+    });
   }
 
   const selectedLeads = leads.filter(l => selected.has(l.id));
@@ -193,11 +212,11 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
         <div className="card p-0 overflow-auto">
           <table style={{ minWidth: 1400 }}>
             <thead><tr>
-              <th><input type="checkbox" className="!w-auto" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} /></th>
+              <th><input type="checkbox" className="!w-auto" checked={paginated.length > 0 && paginated.every(l => selected.has(l.id))} onChange={toggleSelectAll} /></th>
               <th>Name</th><th>Source / campaign</th><th>Destination</th><th>Interest</th><th>Consultant</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th>
             </tr></thead>
             <tbody>
-              {filtered.map(l => {
+              {paginated.map(l => {
                 const overdue = isOverdue(l);
                 return (
                   <tr key={l.id} style={overdue ? { background: 'var(--red-50)' } : l.isVip ? { background: 'var(--gold-50)' } : undefined}>
@@ -250,14 +269,23 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                         <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
                           href={waLink(l.phone, pickFollowUpMessage(l, followUpTemplates))}>WhatsApp</a>
                         <button className="btn btn-sm" onClick={() => onConvert(l)}>Convert</button>
-                        <button className="btn btn-sm" onClick={() => setShowMaterialsFor(l.id)}>Send materials</button>
-                        {!l.escalated || l.escalationResolved ? (
-                          <button className="btn btn-sm" onClick={() => setEscalateFor(l.id)}>Escalate</button>
-                        ) : (
-                          <button className="btn btn-sm" style={{ background: 'var(--gold-50)' }} onClick={() => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x))}>Mark resolved</button>
-                        )}
-                        <button className="btn btn-sm" onClick={() => setTourLeadId(l.id)}>Add to tour</button>
-                        <button className="btn btn-sm btn-ghost btn-danger" onClick={() => remove(l.id)}>Delete</button>
+                        <select className="btn btn-sm" defaultValue="" onChange={e => {
+                          const action = e.target.value;
+                          e.target.value = '';
+                          if (action === 'materials') setShowMaterialsFor(l.id);
+                          else if (action === 'escalate') setEscalateFor(l.id);
+                          else if (action === 'resolve') setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x));
+                          else if (action === 'visit') setScheduleVisitFor(l.id);
+                          else if (action === 'tour') setTourLeadId(l.id);
+                          else if (action === 'delete') { if (window.confirm(`Delete ${l.name}? This can't be undone.`)) remove(l.id); }
+                        }}>
+                          <option value="">More…</option>
+                          <option value="materials">Send materials</option>
+                          {(!l.escalated || l.escalationResolved) ? <option value="escalate">Escalate</option> : <option value="resolve">Mark resolved</option>}
+                          <option value="visit">Schedule visit</option>
+                          <option value="tour">Add to tour</option>
+                          <option value="delete">Delete</option>
+                        </select>
                       </div>
                     </td>
                   </tr>
@@ -267,6 +295,23 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
           </table>
         </div>
       ))}
+
+      {viewMode === 'list' && filtered.length > 0 && (
+        <div className="flex items-center justify-between mt-3.5">
+          <div className="text-[12.5px] text-[var(--muted)]">
+            Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>← Previous</button>
+            <span className="text-[12.5px] text-[var(--muted)] font-mono-ui">Page {page} of {totalPages}</span>
+            <button className="btn btn-sm" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <AgentPerformanceReport leads={leads} team={team} />
+      </div>
 
       <Modal open={showNew} onClose={() => setShowNew(false)}>
         <NewLeadForm onClose={() => setShowNew(false)} assignable={assignable} campaigns={campaigns} />
@@ -314,6 +359,10 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
 
       <Modal open={!!showMaterialsFor} onClose={() => setShowMaterialsFor(null)}>
         {showMaterialsFor && <SendMaterialsForm leadId={showMaterialsFor} onClose={() => setShowMaterialsFor(null)} />}
+      </Modal>
+
+      <Modal open={!!scheduleVisitFor} onClose={() => setScheduleVisitFor(null)}>
+        {scheduleVisitFor && <ScheduleVisitForm leadId={scheduleVisitFor} onClose={() => setScheduleVisitFor(null)} />}
       </Modal>
     </div>
   );
@@ -1168,6 +1217,113 @@ function EngagementBroadcast({ leads, onClose }: { leads: Lead[]; onClose: () =>
       <ModalFoot>
         <button className="btn" onClick={skip}>Skip</button>
         <button className="btn btn-primary" onClick={markSentAndNext}>Mark sent &amp; next</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function AgentPerformanceReport({ leads, team }: { leads: Lead[]; team: any[] }) {
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); });
+  const [to, setTo] = useState(today());
+
+  const agents = team.filter((t: any) => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
+
+  const stats = agents.map((agent: any) => {
+    const agentLeads = leads.filter(l => l.assignedTo === agent.id && l.createdAt >= from && l.createdAt <= to);
+    const converted = agentLeads.filter(l => l.stage === 'Converted').length;
+    const taggedMsgs = agentLeads.flatMap(l => l.messages).filter(m => m.direction === 'Out' && m.date >= from && m.date <= to && (m.responded === 'Yes' || m.responded === 'No'));
+    const responded = taggedMsgs.filter(m => m.responded === 'Yes').length;
+    const responseRate = taggedMsgs.length ? Math.round((responded / taggedMsgs.length) * 100) : 0;
+    return { name: agent.name.split(' ')[0], fullName: agent.name, handled: agentLeads.length, converted, responseRate, taggedCount: taggedMsgs.length };
+  });
+
+  const totalHandled = stats.reduce((s, a) => s + a.handled, 0);
+  const totalConverted = stats.reduce((s, a) => s + a.converted, 0);
+
+  return (
+    <>
+      <SectionHead title="Agent performance" count="how many leads each agent is handling, and how they're converting" />
+      <div className="card mb-3.5">
+        <div className="grid grid-cols-2 gap-3" style={{ maxWidth: 360 }}>
+          <Field label="From"><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
+          <Field label="To"><input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3.5 mb-3.5 max-md:grid-cols-1">
+        <div className="card"><div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)]">Leads handed over (this period)</div><div className="font-display text-[22px] font-semibold mt-1">{totalHandled}</div></div>
+        <div className="card"><div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)]">Converted (this period)</div><div className="font-display text-[22px] font-semibold mt-1">{totalConverted}</div></div>
+      </div>
+
+      {stats.length > 0 && (
+        <div className="card mb-3.5" style={{ height: 260 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11.5 }} />
+              <YAxis tick={{ fontSize: 11.5 }} allowDecimals={false} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="handled" name="Leads handed over" fill="var(--navy)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="converted" name="Converted" fill="var(--green)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div className="card p-0 overflow-auto">
+        <table>
+          <thead><tr><th>Agent</th><th>Leads handed over</th><th>Converted</th><th>Response rate</th></tr></thead>
+          <tbody>
+            {stats.map(s => (
+              <tr key={s.fullName}>
+                <td className="font-medium">{s.fullName}</td>
+                <td>{s.handled}</td>
+                <td>{s.converted}</td>
+                <td>{s.taggedCount > 0 ? `${s.responseRate}%` : '—'}</td>
+              </tr>
+            ))}
+            {!stats.length && <tr><td colSpan={4} className="text-[var(--muted)] p-3.5">No sales staff to report on yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function ScheduleVisitForm({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const { leads, team, setAppointments, logActivity } = useAppData();
+  const toast = useToast();
+  const lead = leads.find(l => l.id === leadId);
+  const assignable = team.filter((t: any) => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
+
+  const [date, setDate] = useState(today());
+  const [time, setTime] = useState('11:00');
+  const [consultant, setConsultant] = useState(lead?.assignedTo || assignable[0]?.id || '');
+
+  function save() {
+    if (!lead) return;
+    setAppointments((prev: any[]) => [...prev, {
+      id: genId('ap'), clientName: lead.name, phone: lead.phone, date, time, type: 'Free consultation', portal: '', consultant, status: 'Scheduled',
+    }]);
+    logActivity(`Visit scheduled for ${lead.name} — ${date}`);
+    toast('Visit scheduled');
+    onClose();
+  }
+
+  if (!lead) return null;
+  return (
+    <>
+      <ModalTitle>Schedule a visit — {lead.name}</ModalTitle>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+        <Field label="Time"><input type="time" value={time} onChange={e => setTime(e.target.value)} /></Field>
+      </div>
+      <Field label="Consultant"><select value={consultant} onChange={e => setConsultant(e.target.value)}>{assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name} — {t.role}</option>)}</select></Field>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-1 mb-1">This creates a Free consultation appointment — find and manage it from Appointments afterward.</div>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Schedule visit</button>
       </ModalFoot>
     </>
   );
