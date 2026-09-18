@@ -26,6 +26,29 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
   const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
   function normalizeSearchPhone(p: string) { return (p || '').replace(/[^0-9]/g, '').replace(/^92/, '0'); }
 
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  function sortValue(c: Case, col: string): string | number {
+    switch (col) {
+      case 'name': return c.name.toLowerCase();
+      case 'destination': return c.destination.toLowerCase();
+      case 'consultant': return consultantName(c.consultant).toLowerCase();
+      case 'caseStage': return CASE_STAGES.indexOf(c.caseStage as any);
+      case 'status': return c.status.toLowerCase();
+      case 'documents': return c.documents.filter(d => d.status === 'Verified').length;
+      case 'charges': return overallCharge(c);
+      default: return '';
+    }
+  }
+  function toggleSort(col: string) {
+    if (sortColumn === col) setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortColumn(col); setSortDirection('asc'); }
+  }
+  function sortArrow(col: string) {
+    if (sortColumn !== col) return '';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  }
+
   const filtered = cases.filter(c => {
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
@@ -33,6 +56,11 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
     const nameMatch = c.name.toLowerCase().includes(q) || (c.referenceCode || '').toLowerCase().includes(q);
     const phoneMatch = qDigits.length > 0 && normalizeSearchPhone(c.phone).includes(normalizeSearchPhone(qDigits));
     return nameMatch || phoneMatch;
+  }).sort((a, b) => {
+    if (!sortColumn) return 0;
+    const av = sortValue(a, sortColumn), bv = sortValue(b, sortColumn);
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return sortDirection === 'asc' ? cmp : -cmp;
   });
 
   // A converted lead should immediately open the "new case" form pre-filled.
@@ -72,7 +100,17 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
       ) : (
         <div className="card p-0 overflow-auto">
           <table>
-            <thead><tr><th>Client</th><th>Destination</th><th>Consultant</th><th>Case stage</th><th>Status</th><th>Documents</th><th>Appt payment</th><th>Overall charges</th><th></th></tr></thead>
+            <thead><tr>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('name')}>Client{sortArrow('name')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('destination')}>Destination{sortArrow('destination')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('consultant')}>Consultant{sortArrow('consultant')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('caseStage')}>Case stage{sortArrow('caseStage')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('status')}>Status{sortArrow('status')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('documents')}>Documents{sortArrow('documents')}</th>
+              <th>Appt payment</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('charges')}>Overall charges{sortArrow('charges')}</th>
+              <th></th>
+            </tr></thead>
             <tbody>
               {filtered.map(c => {
                 const verified = c.documents.filter(d => d.status === 'Verified').length;

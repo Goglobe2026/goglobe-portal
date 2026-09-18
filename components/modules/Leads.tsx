@@ -61,6 +61,29 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     return days >= 15;
   }
   const engagementDueCount = leads.filter(isDueForEngagement).length;
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  function consultantNameFor(id: string) { return team.find((t: any) => t.id === id)?.name || 'Unassigned'; }
+  function sortValue(l: Lead, col: string): string | number {
+    switch (col) {
+      case 'name': return l.name.toLowerCase();
+      case 'destination': return l.destination.toLowerCase();
+      case 'interest': return { High: 3, Medium: 2, Low: 1, Unrated: 0 }[l.interestLevel] ?? 0;
+      case 'consultant': return consultantNameFor(l.assignedTo).toLowerCase();
+      case 'stage': return LEAD_STAGES.indexOf(l.stage as any);
+      case 'nextFollowUp': return l.nextFollowUp || '';
+      default: return '';
+    }
+  }
+  function toggleSort(col: string) {
+    if (sortColumn === col) setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortColumn(col); setSortDirection('asc'); }
+  }
+  function sortArrow(col: string) {
+    if (sortColumn !== col) return '';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  }
 
   const filtered = leads.filter(l => {
     if (countryFilter && l.destination !== countryFilter) return false;
@@ -77,9 +100,14 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     }
     return true;
   }).sort((a, b) => {
-    // VIPs always float to the top, then newest-first within each group —
-    // so a fresh batch of imported leads shows up front, not buried at the
-    // bottom under everything already worked.
+    if (sortColumn) {
+      const av = sortValue(a, sortColumn), bv = sortValue(b, sortColumn);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDirection === 'asc' ? cmp : -cmp;
+    }
+    // Default, with nothing explicitly chosen: VIPs float to the top, then
+    // newest-first — so a fresh batch of imported leads shows up front,
+    // not buried at the bottom under everything already worked.
     if (a.isVip !== b.isVip) return a.isVip ? -1 : 1;
     return b.createdAt.localeCompare(a.createdAt);
   });
@@ -98,10 +126,6 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   }
   function setFollowUp(id: string, date: string) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, nextFollowUp: date } : l));
-  }
-  function remove(id: string) {
-    setLeads(prev => prev.filter(l => l.id !== id));
-    toast('Lead deleted');
   }
   function toggleSelect(id: string) {
     setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -213,7 +237,14 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
           <table style={{ minWidth: 1400 }}>
             <thead><tr>
               <th><input type="checkbox" className="!w-auto" checked={paginated.length > 0 && paginated.every(l => selected.has(l.id))} onChange={toggleSelectAll} /></th>
-              <th>Name</th><th>Source / campaign</th><th>Destination</th><th>Interest</th><th>Consultant</th><th>Stage</th><th>Next follow-up</th><th>Messages</th><th></th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('name')}>Name{sortArrow('name')}</th>
+              <th>Source / campaign</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('destination')}>Destination{sortArrow('destination')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('interest')}>Interest{sortArrow('interest')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('consultant')}>Consultant{sortArrow('consultant')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('stage')}>Stage{sortArrow('stage')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('nextFollowUp')}>Next follow-up{sortArrow('nextFollowUp')}</th>
+              <th>Messages</th><th></th>
             </tr></thead>
             <tbody>
               {paginated.map(l => {
@@ -231,7 +262,13 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                       <input className="!border-none !bg-transparent !p-0 text-[11px] text-[var(--faint)] mt-0.5" style={{ width: 110 }}
                         value={l.occupation} placeholder="Occupation" onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, occupation: e.target.value } : x))} />
                     </td>
-                    <td>{l.source}{l.campaign && <div className="font-mono-ui text-xs" style={{ color: 'var(--gold)' }}>{l.campaign}</div>}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full flex-none" style={{ background: 'var(--gold)' }} />
+                        <span className="font-medium">{l.source}</span>
+                      </div>
+                      {l.campaign && <div className="text-[11.5px] text-[var(--faint)] mt-0.5">{l.campaign}</div>}
+                    </td>
                     <td>{l.destination}</td>
                     <td>
                       <select className="border-none bg-transparent font-medium p-0.5" style={{
@@ -277,14 +314,12 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                           else if (action === 'resolve') setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x));
                           else if (action === 'visit') setScheduleVisitFor(l.id);
                           else if (action === 'tour') setTourLeadId(l.id);
-                          else if (action === 'delete') { if (window.confirm(`Delete ${l.name}? This can't be undone.`)) remove(l.id); }
                         }}>
                           <option value="">More…</option>
                           <option value="materials">Send materials</option>
                           {(!l.escalated || l.escalationResolved) ? <option value="escalate">Escalate</option> : <option value="resolve">Mark resolved</option>}
                           <option value="visit">Schedule visit</option>
                           <option value="tour">Add to tour</option>
-                          <option value="delete">Delete</option>
                         </select>
                       </div>
                     </td>
