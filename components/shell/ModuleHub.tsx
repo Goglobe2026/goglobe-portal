@@ -2,9 +2,9 @@
 import { NAV_GROUPS } from '@/lib/navGroups';
 import type { ReactElement } from 'react';
 
-// One consistent icon per group, all drawn in the same gold, so visual
-// distinction comes from iconography — not from six different hues that
-// don't relate to the brand.
+// One consistent icon per group, all drawn in the same navy, so visual
+// distinction comes from iconography, not from a wall of dark color —
+// the cards stay light and open, matching the rest of the site.
 const ICONS: Record<string, ReactElement> = {
   dashboard: (
     <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />
@@ -29,21 +29,25 @@ const ICONS: Record<string, ReactElement> = {
 export function ModuleHub({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div>
-      <div className="grid grid-cols-3 gap-4 max-md:grid-cols-2">
+      <div className="grid grid-cols-3 gap-5 max-md:grid-cols-2">
         {NAV_GROUPS.map(g => (
           <button key={g.id} onClick={() => onOpen(g.id)}
-            className="text-left rounded-2xl p-6 text-white transition-transform hover:scale-[1.02]"
+            className="group text-left rounded-2xl p-7 bg-white transition-all hover:-translate-y-0.5"
             style={{
-              background: 'linear-gradient(155deg, #14213D 0%, #1B3358 100%)',
-              border: '1px solid rgba(255,255,255,.08)', cursor: 'pointer', minHeight: 132,
-            }}>
-            <div className="w-11 h-11 rounded-[11px] flex items-center justify-center mb-4" style={{ background: 'rgba(201,146,46,.16)' }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E8C784" strokeWidth="1.8">
+              border: '1px solid var(--line)',
+              boxShadow: '0 1px 2px rgba(20,33,61,.04)',
+              cursor: 'pointer', minHeight: 150,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 12px 28px rgba(20,33,61,.09)'; e.currentTarget.style.borderColor = 'var(--gold)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(20,33,61,.04)'; e.currentTarget.style.borderColor = 'var(--line)'; }}
+          >
+            <div className="w-12 h-12 rounded-[12px] flex items-center justify-center mb-5" style={{ background: 'var(--gold-50)' }}>
+              <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#14213D" strokeWidth="1.7">
                 {ICONS[g.id]}
               </svg>
             </div>
-            <div className="font-display text-[18px] font-semibold mb-1.5">{g.label}</div>
-            <div className="text-[12.5px]" style={{ opacity: 0.78 }}>{g.blurb}</div>
+            <div className="font-display text-[19px] font-semibold mb-2" style={{ color: '#14213D' }}>{g.label}</div>
+            <div className="text-[13px] leading-relaxed" style={{ color: 'var(--muted)' }}>{g.blurb}</div>
           </button>
         ))}
       </div>

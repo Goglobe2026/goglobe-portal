@@ -110,18 +110,21 @@ export function GroupDashboard({ group, onOpenTile, onBack }: { group: NavGroup;
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
+      <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
         {group.tiles.map(tile => (
           <button key={tile.id} onClick={() => onOpenTile(tile.id)}
-            className="text-left rounded-2xl p-5 text-white transition-transform hover:scale-[1.02]"
-            style={{ background: 'linear-gradient(155deg, #14213D 0%, #1B3358 100%)', border: '1px solid rgba(255,255,255,.08)', cursor: 'pointer' }}>
-            <div className="w-10 h-10 rounded-[10px] flex items-center justify-center mb-3.5" style={{ background: 'rgba(201,146,46,.16)' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E8C784" strokeWidth="1.8">
+            className="text-left rounded-2xl p-6 bg-white transition-all hover:-translate-y-0.5"
+            style={{ border: '1px solid var(--line)', boxShadow: '0 1px 2px rgba(20,33,61,.04)', cursor: 'pointer' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 12px 28px rgba(20,33,61,.09)'; e.currentTarget.style.borderColor = 'var(--gold)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(20,33,61,.04)'; e.currentTarget.style.borderColor = 'var(--line)'; }}
+          >
+            <div className="w-10 h-10 rounded-[10px] flex items-center justify-center mb-4" style={{ background: 'var(--gold-50)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14213D" strokeWidth="1.7">
                 {TILE_ICONS[tile.id] || DEFAULT_ICON}
               </svg>
             </div>
-            <div className="font-display text-[16.5px] font-semibold mb-1.5">{tile.label}</div>
-            <div className="text-[12.5px]" style={{ opacity: 0.78 }}>{tile.blurb}</div>
+            <div className="font-display text-[16.5px] font-semibold mb-1.5" style={{ color: '#14213D' }}>{tile.label}</div>
+            <div className="text-[12.5px] leading-relaxed" style={{ color: 'var(--muted)' }}>{tile.blurb}</div>
           </button>
         ))}
       </div>
