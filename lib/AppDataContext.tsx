@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
@@ -56,6 +56,7 @@ interface AppDataContextValue {
   clientFeedback: ClientFeedback[]; setClientFeedback: (u: Updater<ClientFeedback[]>) => void;
   marketingMaterials: MarketingMaterial[]; setMarketingMaterials: (u: Updater<MarketingMaterial[]>) => void;
   followUpTemplates: FollowUpTemplate[]; setFollowUpTemplates: (u: Updater<FollowUpTemplate[]>) => void;
+  invoices: Invoice[]; setInvoices: (u: Updater<Invoice[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
   sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
@@ -69,7 +70,7 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
-  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates',
+  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -100,6 +101,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const clientFeedback = useSynced<ClientFeedback[]>('clientfeedback', []);
   const marketingMaterials = useSynced<MarketingMaterial[]>('marketingmaterials', []);
   const followUpTemplates = useSynced<FollowUpTemplate[]>('followuptemplates', []);
+  const invoices = useSynced<Invoice[]>('invoices', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
   const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
@@ -132,7 +134,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, pin, goal, pb, ssu] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
@@ -178,6 +180,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     clientFeedback: clientFeedback.value, setClientFeedback: clientFeedback.setAndSave,
     marketingMaterials: marketingMaterials.value, setMarketingMaterials: marketingMaterials.setAndSave,
     followUpTemplates: followUpTemplates.value, setFollowUpTemplates: followUpTemplates.setAndSave,
+    invoices: invoices.value, setInvoices: invoices.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
     sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,

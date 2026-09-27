@@ -155,6 +155,31 @@ export interface FollowUpTemplate {
   daysUntilNext: number;
 }
 
+export interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  caseId: string;
+  date: string;
+  clientName: string;
+  clientPhone: string;
+  clientCity: string;
+  visaType: string;
+  destination: string;
+  serviceDescription: string;
+  totalAmount: number;
+  advancePercent: number;
+  advanceAmount: number;
+  advanceStatus: 'Due' | 'Paid';
+  advancePaidDate: string;
+  advancePaymentMethod: string;
+  balanceAmount: number;
+  balanceStatus: 'Pending' | 'Paid';
+  balancePaidDate: string;
+  balanceDueDate: string;
+  clientAcknowledged: boolean;
+  clientAcknowledgedDate: string;
+}
+
 export interface PersonalExpense {
   id: string;
   date: string;
@@ -326,6 +351,7 @@ export type Collections = {
   clientfeedback: ClientFeedback[];
   marketingmaterials: MarketingMaterial[];
   followuptemplates: FollowUpTemplate[];
+  invoices: Invoice[];
 };
 
 export type CollectionName = keyof Collections;

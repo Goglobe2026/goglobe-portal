@@ -1,11 +1,13 @@
 'use client';
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, CASE_TYPES, genId, today, getDocTemplate, DEFAULT_RATES, fmtDate } from '@/lib/constants';
 import { exportToCsv } from '@/lib/csv';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { Case, DocItem, Lead } from '@/lib/types';
+import type { Case, DocItem, Lead, Invoice } from '@/lib/types';
+import { LOGO_FULL } from '@/lib/logo';
 
 export function overallCharge(c: Case) { return Math.max(0, c.fee + c.apptFee + c.consultFee - c.discount); }
 export function grossCharge(c: Case) { return c.fee + c.apptFee + c.consultFee; }
@@ -246,7 +248,7 @@ function NewCaseForm({ fromLead, onClose, onCreated }: { fromLead: Lead | null; 
 }
 
 function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => void; onPay: () => void }) {
-  const { cases, setCases, team, referralAgents, setTransactions, logActivity } = useAppData();
+  const { cases, setCases, team, referralAgents, setTransactions, logActivity, invoices, setInvoices } = useAppData();
   const toast = useToast();
   const c = cases.find(x => x.id === caseId)!;
   const [name, setName] = useState(c.name); const [phone, setPhone] = useState(c.phone);
@@ -260,7 +262,10 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
   const [costToExecute, setCostToExecute] = useState(c.costToExecute || 0);
   const [referralAgentId, setReferralAgentId] = useState(c.referralAgentId || '');
   const [referralCommissionPercent, setReferralCommissionPercent] = useState(c.referralCommissionPercent || 0);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
   const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
+  const caseInvoices = invoices.filter(i => i.caseId === c.id).sort((a, b) => b.date.localeCompare(a.date));
 
   const docs = c.documents;
   const verifiedCount = docs.filter(d => d.status === 'Verified').length;
@@ -355,8 +360,27 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
         {discount > 0 ? `Standard price ${money(grossTotal)}, discounted by ${money(discount)} → client owes ${money(netTotal)}.` : 'No discount applied — client owes the full standard price.'}
       </div>
       {overallPaid(c) < overallCharge(c)
-        ? <button className="btn btn-sm mb-4.5" onClick={onPay}>Record a payment</button>
-        : <div className="text-[11.5px] mb-4.5" style={{ color: 'var(--green)' }}>Fully paid.</div>}
+        ? <button className="btn btn-sm mb-3" onClick={onPay}>Record a payment</button>
+        : <div className="text-[11.5px] mb-3" style={{ color: 'var(--green)' }}>Fully paid.</div>}
+
+      <div className="card mb-4.5">
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)]">Invoices</div>
+          <button className="btn btn-sm" onClick={() => setShowInvoiceForm(true)}>+ Generate invoice</button>
+        </div>
+        {caseInvoices.length === 0
+          ? <div className="text-[12.5px] text-[var(--muted)]">No invoice generated yet for this case.</div>
+          : <div className="flex flex-col gap-1.5">
+              {caseInvoices.map(inv => (
+                <button key={inv.id} className="btn btn-sm text-left" onClick={() => setViewInvoiceId(inv.id)}>
+                  {inv.invoiceNumber} — {fmtDate(inv.date)} — {money(inv.totalAmount)}
+                  {inv.advanceStatus === 'Paid' && inv.balanceStatus === 'Paid'
+                    ? <span style={{ color: 'var(--green)' }}> · Fully paid</span>
+                    : <span style={{ color: 'var(--red, #B5433A)' }}> · {inv.advanceStatus === 'Due' ? 'Advance due' : 'Balance pending'}</span>}
+                </button>
+              ))}
+            </div>}
+      </div>
 
       <SectionHead title="Document checklist" count={`${verifiedCount}/${docs.length} verified — green is complete, red is missing`} />
       <div className="max-h-64 overflow-auto mb-2.5 border rounded-[10px] px-3 py-1" style={{ borderColor: 'var(--line)' }}>
@@ -413,6 +437,13 @@ function CaseFile({ caseId, onClose, onPay }: { caseId: string; onClose: () => v
         <button className="btn" onClick={onClose}>Close</button>
         <button className="btn btn-primary" onClick={saveDetails}>Save changes</button>
       </ModalFoot>
+
+      <Modal open={showInvoiceForm} onClose={() => setShowInvoiceForm(false)}>
+        <InvoiceForm caseId={c.id} onClose={() => setShowInvoiceForm(false)} onCreated={id => { setShowInvoiceForm(false); setViewInvoiceId(id); }} />
+      </Modal>
+      <Modal open={!!viewInvoiceId} onClose={() => setViewInvoiceId(null)} wide>
+        {viewInvoiceId && <InvoiceView invoiceId={viewInvoiceId} onClose={() => setViewInvoiceId(null)} />}
+      </Modal>
     </>
   );
 }
@@ -472,6 +503,235 @@ function PaymentForm({ caseId, onClose }: { caseId: string; onClose: () => void 
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={save}>Save payment</button>
       </ModalFoot>
+    </>
+  );
+}
+
+function InvoiceForm({ caseId, onClose, onCreated }: { caseId: string; onClose: () => void; onCreated: (id: string) => void }) {
+  const { cases, setInvoices, invoices, logActivity } = useAppData();
+  const toast = useToast();
+  const c = cases.find(x => x.id === caseId)!;
+
+  const [serviceDescription, setServiceDescription] = useState(`${c.destination} Visit Visa - File Preparation & Consultancy Services`);
+  const [totalAmount, setTotalAmount] = useState(overallCharge(c));
+  const [advancePercent, setAdvancePercent] = useState(50);
+  const [clientCity, setClientCity] = useState('');
+
+  const advanceAmount = Math.round(totalAmount * (advancePercent / 100));
+  const balanceAmount = totalAmount - advanceAmount;
+
+  function save() {
+    const todayStr = today();
+    const seq = String(invoices.filter(i => i.date === todayStr).length + 1).padStart(2, '0');
+    const invoiceNumber = `GG-INV-${todayStr.replace(/-/g, '').slice(2)}-${seq}`;
+    const newInvoice: Invoice = {
+      id: genId('inv'), invoiceNumber, caseId: c.id, date: todayStr,
+      clientName: c.name, clientPhone: c.phone, clientCity,
+      visaType: c.visaType, destination: c.destination, serviceDescription,
+      totalAmount, advancePercent, advanceAmount, advanceStatus: 'Due', advancePaidDate: '', advancePaymentMethod: '',
+      balanceAmount, balanceStatus: 'Pending', balancePaidDate: '', balanceDueDate: '',
+      clientAcknowledged: false, clientAcknowledgedDate: '',
+    };
+    setInvoices(prev => [...prev, newInvoice]);
+    logActivity(`Invoice ${invoiceNumber} generated for ${c.name}`);
+    toast('Invoice generated');
+    onCreated(newInvoice.id);
+  }
+
+  return (
+    <>
+      <ModalTitle>Generate invoice — {c.name}</ModalTitle>
+      <Field label="Service description"><input value={serviceDescription} onChange={e => setServiceDescription(e.target.value)} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Total consultancy fee (PKR)"><input type="number" value={totalAmount} onChange={e => setTotalAmount(Number(e.target.value))} /></Field>
+        <Field label="Client city"><input value={clientCity} onChange={e => setClientCity(e.target.value)} placeholder="e.g. Rawalpindi" /></Field>
+      </div>
+      <Field label="Advance percentage">
+        <select value={advancePercent} onChange={e => setAdvancePercent(Number(e.target.value))}>
+          {[100, 75, 50, 40, 30, 25].map(p => <option key={p} value={p}>{p}%</option>)}
+        </select>
+      </Field>
+      <div className="text-[12.5px] text-[var(--muted)] mb-3.5">
+        Advance due now: <b>{money(advanceAmount)}</b> · Balance after advance: <b>{money(balanceAmount)}</b>
+      </div>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Generate invoice</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
+  const { invoices, setInvoices, logActivity } = useAppData();
+  const toast = useToast();
+  const inv = invoices.find(i => i.id === invoiceId)!;
+  const [paymentMethod, setPaymentMethod] = useState('Online (Bank Transfer)');
+
+  function update(patch: Partial<Invoice>) {
+    setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, ...patch } : i));
+  }
+  function markAdvancePaid() {
+    update({ advanceStatus: 'Paid', advancePaidDate: today(), advancePaymentMethod: paymentMethod });
+    logActivity(`Advance payment recorded for invoice ${inv.invoiceNumber}`);
+    toast('Advance marked as paid');
+  }
+  function markBalancePaid() {
+    update({ balanceStatus: 'Paid', balancePaidDate: today() });
+    logActivity(`Balance payment recorded for invoice ${inv.invoiceNumber}`);
+    toast('Balance marked as paid');
+  }
+  function toggleAcknowledged() {
+    const next = !inv.clientAcknowledged;
+    update({ clientAcknowledged: next, clientAcknowledgedDate: next ? today() : '' });
+    if (next) { logActivity(`Client acknowledged terms for invoice ${inv.invoiceNumber}`); toast('Marked as acknowledged by client'); }
+  }
+
+  const T: CSSProperties = { border: '1px solid #cfd8dc', padding: '6px 9px', fontSize: 11.5 };
+  const TH: CSSProperties = { ...T, background: '#14213D', color: '#fff', fontWeight: 600 };
+
+  return (
+    <>
+      <div className="no-print flex items-center justify-between mb-3.5">
+        <ModalTitle>Invoice {inv.invoiceNumber}</ModalTitle>
+        <div className="flex gap-2">
+          {!inv.clientAcknowledged
+            ? <button className="btn btn-sm" onClick={toggleAcknowledged}>Mark client acknowledged</button>
+            : <span className="text-[12px]" style={{ color: 'var(--green)' }}>✓ Acknowledged {fmtDate(inv.clientAcknowledgedDate)}</span>}
+          <button className="btn btn-sm btn-primary" onClick={() => window.print()}>Print / Save as PDF</button>
+        </div>
+      </div>
+
+      {inv.advanceStatus === 'Due' && (
+        <div className="no-print card mb-3" style={{ background: 'var(--gold-50)' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-[12.5px]">Advance of {money(inv.advanceAmount)} not yet recorded as paid.</span>
+            <div className="flex items-center gap-2">
+              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="!w-auto text-[12px]">
+                <option>Online (Bank Transfer)</option><option>Cash</option><option>Easypaisa</option><option>JazzCash</option>
+              </select>
+              <button className="btn btn-sm" onClick={markAdvancePaid}>Mark advance paid</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {inv.advanceStatus === 'Paid' && inv.balanceStatus === 'Pending' && (
+        <div className="no-print card mb-3" style={{ background: 'var(--gold-50)' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-[12.5px]">Balance of {money(inv.balanceAmount)} still pending.</span>
+            <button className="btn btn-sm" onClick={markBalancePaid}>Mark balance paid</button>
+          </div>
+        </div>
+      )}
+
+      <div id="invoice-print-area" style={{ background: '#fff', color: '#1a1a1a', fontFamily: 'Arial, sans-serif' }}>
+        <div style={{ background: '#FBF0DD', border: '1px solid #E8C784', padding: '8px 12px', fontSize: 10.5, marginBottom: 10, lineHeight: 1.4 }}>
+          <b>PAYMENT SECURITY ADVISORY:</b> All payments must be made only to the official bank account or other authorized payment account of GoGlobe Consultant.
+          Any payment transferred to an employee's personal bank account, mobile wallet, or unauthorized third-party account without official written authorization
+          is made at the client's own risk. GoGlobe Consultant shall not be responsible for any loss, misuse, dispute, non-receipt, recovery, reimbursement,
+          compensation, or financial protection relating to such unauthorized payment.
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <img src={LOGO_FULL} style={{ height: 54 }} alt="GoGlobe Consultant" />
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: '#14213D' }}>INVOICE</div>
+            <div style={{ fontSize: 11 }}><b>Invoice No:</b> {inv.invoiceNumber}</div>
+            <div style={{ fontSize: 11 }}><b>Date:</b> {fmtDate(inv.date)}</div>
+          </div>
+        </div>
+        <div style={{ height: 5, background: 'linear-gradient(90deg,#1FA463,#1F6E8C,#14213D)', marginBottom: 12 }} />
+
+        <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 10, fontSize: 11.5 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>BILL TO</div>
+            <div>{inv.clientName}</div>
+            <div>{inv.destination} Visit Visa Applicant</div>
+            {inv.clientCity && <div>{inv.clientCity}</div>}
+            <div>{inv.clientPhone}</div>
+          </div>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 10, fontSize: 11.5 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>FROM</div>
+            <div>GoGlobe Consultant</div>
+            <div>Office No. 303, 3rd Floor, Noor Mobile Mall,</div>
+            <div>6th Road, Block D, Satellite Town, Rawalpindi.</div>
+          </div>
+        </div>
+
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>SERVICE DETAILS</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+          <thead><tr><th style={TH}>Description</th><th style={{ ...TH, textAlign: 'right', width: 130 }}>Amount (PKR)</th></tr></thead>
+          <tbody><tr><td style={T}>{inv.serviceDescription}</td><td style={{ ...T, textAlign: 'right' }}>{inv.totalAmount.toLocaleString()}</td></tr></tbody>
+        </table>
+
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PAYMENT SUMMARY</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, textAlign: 'center' }}>
+          <thead><tr><th style={TH}>Total Consultancy Fee</th><th style={TH}>Amount Received</th><th style={TH}>Outstanding Balance</th></tr></thead>
+          <tbody><tr>
+            <td style={{ ...T, fontWeight: 700 }}>PKR {inv.totalAmount.toLocaleString()}</td>
+            <td style={{ ...T, fontWeight: 700, color: '#0B6E4F' }}>PKR {(inv.advanceStatus === 'Paid' ? inv.advanceAmount : 0) + (inv.balanceStatus === 'Paid' ? inv.balanceAmount : 0)}</td>
+            <td style={{ ...T, fontWeight: 700, color: inv.balanceStatus === 'Paid' && inv.advanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>
+              PKR {(inv.totalAmount - ((inv.advanceStatus === 'Paid' ? inv.advanceAmount : 0) + (inv.balanceStatus === 'Paid' ? inv.balanceAmount : 0))).toLocaleString()}
+              {inv.advanceStatus === 'Paid' && inv.balanceStatus === 'Paid' ? '' : ' - PENDING'}
+            </td>
+          </tr></tbody>
+        </table>
+
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PAYMENT TERMS</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+          <thead><tr><th style={TH}>Stage</th><th style={TH}>Amount</th><th style={TH}>Due</th><th style={TH}>Status</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style={T}>Advance ({inv.advancePercent}%) - payable against this invoice</td>
+              <td style={T}>PKR {inv.advanceAmount.toLocaleString()}</td>
+              <td style={T}>{inv.advanceStatus === 'Paid' ? fmtDate(inv.advancePaidDate) : 'On invoice'}</td>
+              <td style={{ ...T, fontWeight: 700, color: inv.advanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>{inv.advanceStatus === 'Paid' ? 'Received' : 'DUE NOW'}</td>
+            </tr>
+            <tr>
+              <td style={T}>Balance ({100 - inv.advancePercent}%) - payable when prepared file is collected</td>
+              <td style={T}>PKR {inv.balanceAmount.toLocaleString()}</td>
+              <td style={T}>At file completion / before collection</td>
+              <td style={{ ...T, fontWeight: 700, color: inv.balanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>{inv.balanceStatus === 'Paid' ? 'Received' : 'Pending'}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PROFESSIONAL TERMS &amp; CONDITIONS OF SERVICE</div>
+        <ol style={{ fontSize: 10, lineHeight: 1.5, paddingLeft: 16, marginBottom: 12 }}>
+          <li style={{ marginBottom: 5 }}><b>ADVANCE / PAYMENTS – NON-REFUNDABLE.</b> The advance payment received against the total consultancy fee is non-refundable once the case has been started. The remaining balance becomes payable after the client has reviewed and verified the prepared file and must be cleared before file collection / handover. Consultancy and service charges cover professional case assessment, documentation, file preparation, appointment processing, and other services performed by GoGlobe Consultant and are not dependent upon the final visa decision.</li>
+          <li style={{ marginBottom: 5 }}><b>VISA DECISION.</b> Visa approval or refusal is solely at the discretion of the relevant embassy, consulate, or visa authority. GoGlobe Consultant does not guarantee visa approval. In case of refusal, any re-application, appeal, or review requested by the client will be treated as a new service with a separately payable fee.</li>
+          <li style={{ marginBottom: 5 }}><b>CLIENT DOCUMENT RESPONSIBILITY.</b> The client is responsible for providing complete, accurate, genuine, and verifiable information and documents. GoGlobe Consultant is not responsible for false, forged, altered, or misleading documents provided by the client.</li>
+          <li style={{ marginBottom: 5 }}><b>COMPANY-PROVIDED / ATTACHED DOCUMENTS.</b> GoGlobe Consultant shall be responsible for documents prepared, provided, or attached by the company. If any such document is found to be wrong, false, fake, forged, invalid, or materially incorrect due to an error attributable to the company, GoGlobe Consultant shall correct, replace, or re-prepare it without additional consultancy charges.</li>
+          <li style={{ marginBottom: 5 }}><b>APPOINTMENT ATTENDANCE &amp; CLIENT DELAYS.</b> The client is responsible for attending appointments, biometrics, interviews, and other required appearances on time. Any missed appointment, late document submission, or other delay caused by the client is the client's responsibility.</li>
+          <li style={{ marginBottom: 5 }}><b>EMBASSY / THIRD-PARTY DELAYS.</b> GoGlobe Consultant is not responsible for delays caused by embassies, consulates, visa application centers, appointment availability, government authorities, courier services, or other third parties beyond the company's control.</li>
+          <li style={{ marginBottom: 5 }}><b>PAYMENT STATUS.</b> The amount shown as received above has been received against the total consultancy fee. Any outstanding balance must be paid before the file is collected or handed over.</li>
+          <li style={{ marginBottom: 5 }}><b>THIRD-PARTY CHARGES.</b> Embassy fees, biometric fees, courier charges, or other third-party costs are separate unless specifically included in writing.</li>
+          <li style={{ marginBottom: 0 }}><b>AUTHORIZED COMPANY PAYMENT ACCOUNT.</b> All payments must be made only to the official bank account or other authorized payment account of GoGlobe Consultant. Any transfer to an employee's personal account, mobile wallet, representative, agent, or other third party without official written authorization is at the client's own risk.</li>
+        </ol>
+
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>CLIENT ACKNOWLEDGEMENT</div>
+        <div style={{ fontSize: 10.5, marginBottom: 10 }}>
+          By signing below, the client confirms that the invoice details, payment terms, and terms &amp; conditions stated in this document have been read and understood.
+        </div>
+        <div style={{ display: 'flex', gap: 40, marginBottom: 10 }}>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 4, fontSize: 10.5 }}>CLIENT SIGNATURE</div>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 4, fontSize: 10.5 }}>
+            AUTHORIZED SIGNATURE / COMPANY STAMP
+            {inv.clientAcknowledged && <div style={{ color: '#0B6E4F', fontWeight: 700, marginTop: 2 }}>Acknowledged in system on {fmtDate(inv.clientAcknowledgedDate)}</div>}
+          </div>
+        </div>
+
+        <div style={{ background: '#14213D', color: '#fff', padding: '8px 12px', fontSize: 10, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div><b>WhatsApp</b><br />0317-9911228 | 0327-9911228</div>
+          <div><b>PTCL</b><br />051-6126833</div>
+          <div><b>Email</b><br />info@goglobeconsultants.com</div>
+          <div><b>Website</b><br />goglobeconsultants.com</div>
+        </div>
+      </div>
+
+      <div className="no-print" style={{ marginTop: 12 }}>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
     </>
   );
 }

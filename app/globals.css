@@ -98,3 +98,12 @@ tbody tr:hover { background: #F7FBF9; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+
+/* Invoice printing: only the invoice sheet is shown when printing, the
+   rest of the app (sidebar, modal chrome, buttons) is hidden. */
+@media print {
+  body * { visibility: hidden; }
+  #invoice-print-area, #invoice-print-area * { visibility: visible; }
+  #invoice-print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}
