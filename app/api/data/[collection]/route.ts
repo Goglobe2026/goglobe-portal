@@ -7,7 +7,7 @@ const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook'
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'salaryslips', 'monthlyclosings', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances', 'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
 ];
 const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 
@@ -16,7 +16,8 @@ const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 // even if they craft a request by hand rather than clicking through the UI.
 const ADMIN_ONLY_COLLECTIONS = [
   'bankaccounts', 'loans', 'personalexpenses', 'referralagents',
-  'clientfeedback', 'journalvouchers', 'ceopin', 'revenuegoal', 'monthlyclosings', 'salaryslips',
+  'clientfeedback', 'journalvouchers', 'ceopin', 'revenuegoal', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances',
+  'complaints', 'stafftargets', 'appraisals', 'docregister', 'letters',
 ];
 
 // Fields stripped from 'team' records before a non-admin ever sees them —
@@ -101,6 +102,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ coll
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
   if (collection === 'adjustments' && !admin) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+  }
+  // Everyone can read announcements; only an admin can post or change them.
+  if (collection === 'announcements' && !admin) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 

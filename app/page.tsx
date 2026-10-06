@@ -15,6 +15,12 @@ import { Attendance } from '@/components/modules/Attendance';
 import { Accounts } from '@/components/modules/Accounts';
 import { Reports } from '@/components/modules/Reports';
 import { MonthlyClosing } from '@/components/modules/MonthlyClosing';
+import { Payroll } from '@/components/modules/Payroll';
+import { BillingCenter } from '@/components/modules/BillingCenter';
+import { Complaints } from '@/components/modules/Complaints';
+import { Appraisal } from '@/components/modules/Appraisal';
+import { Announcements } from '@/components/modules/Announcements';
+import { ClientDocuments, StaffLetters } from '@/components/modules/Documents';
 import { Testimonials } from '@/components/modules/Testimonials';
 import { ReferralAgents } from '@/components/modules/ReferralAgents';
 import { GroupTours } from '@/components/modules/GroupTours';
@@ -85,6 +91,13 @@ function PortalApp() {
       {tab === 'accounts' && <Accounts />}
       {tab === 'reports' && <Reports />}
       {tab === 'closing' && <MonthlyClosing />}
+      {tab === 'payroll' && <Payroll />}
+      {tab === 'billing' && <BillingCenter />}
+      {tab === 'complaints' && <Complaints />}
+      {tab === 'appraisal' && <Appraisal />}
+      {tab === 'announcements' && <Announcements />}
+      {tab === 'clientdocs' && <ClientDocuments />}
+      {tab === 'letters' && <StaffLetters />}
       {tab === 'testimonials' && <Testimonials />}
       {tab === 'referralagents' && <ReferralAgents />}
       {tab === 'grouptours' && <GroupTours />}

@@ -1,4 +1,4 @@
-import type { Case, Transaction, SalarySlip } from './types';
+import type { Case, Transaction, PayRun } from './types';
 
 // Money received from clients on a case. Everything else coming in is
 // "other income" and everything going out is an expense.
@@ -44,7 +44,7 @@ export type PendingRow = {
 };
 export type MonthFigures = ReturnType<typeof computeMonth>;
 
-export function computeMonth(month: string, transactions: Transaction[], cases: Case[], slips: SalarySlip[], todayIso: string) {
+export function computeMonth(month: string, transactions: Transaction[], cases: Case[], runs: PayRun[], todayIso: string) {
   const end = monthEnd(month);
   const inMonth = transactions.filter(t => t.date.slice(0, 7) === month);
   const incomes = inMonth.filter(t => t.type === 'Income');
@@ -120,8 +120,11 @@ export function computeMonth(month: string, transactions: Transaction[], cases: 
     .sort((a, b) => b.outstanding - a.outstanding);
   const pendingTotal = pendingRows.reduce((s, r) => s + r.outstanding, 0);
 
-  const unpaidSlips = slips.filter(s => s.status === 'Generated');
-  const unpaidSlipsTotal = unpaidSlips.reduce((s, x) => s + x.netPay, 0);
+  // Payroll that is approved but not yet paid out — owed to staff, not yet cash.
+  const unpaidPayroll = runs.filter(r => r.status === 'Approved').flatMap(r =>
+    r.lines.filter(l => !l.paid).map(l => ({ staffName: l.staffName, month: r.month,
+      net: l.items.reduce((s, i) => s + (i.kind === 'Earning' ? i.amount : -i.amount), 0) })));
+  const unpaidPayrollTotal = unpaidPayroll.reduce((s, x) => s + x.net, 0);
 
   const totalIn = collections + otherIncome;
   const totalOut = salaries + commissionsBonuses + otherExpenses;
@@ -131,6 +134,6 @@ export function computeMonth(month: string, transactions: Transaction[], cases: 
     totalIn, totalOut, net: totalIn - totalOut,
     collectionRows, expenseRows, staffPayments,
     newCaseCount: newCases.length, bookedValue, fromNew, fromEarlier, unlinked,
-    pendingRows, pendingTotal, unpaidSlips, unpaidSlipsTotal,
+    pendingRows, pendingTotal, unpaidPayroll, unpaidPayrollTotal,
   };
 }

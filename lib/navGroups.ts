@@ -24,6 +24,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'cases', label: 'Cases', blurb: 'Active and closed visa applications' },
       { id: 'appointments', label: 'Appointments', blurb: 'Embassy dates, consultations, document collection' },
       { id: 'referralagents', label: 'Referral Agents', blurb: 'External partners and their commissions' },
+      { id: 'complaints', label: 'Complaints & Feedback', blurb: 'Client complaints, resolution tracking and ratings' },
+      { id: 'clientdocs', label: 'Client Documents', blurb: 'Originals received, held, submitted and returned' },
     ],
   },
   { id: 'grouptours', label: 'Group Tours', standalone: true, blurb: 'Package tour registrations and QR verification' },
@@ -31,6 +33,10 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'grp-hr', label: 'HR', blurb: 'Your team — records, attendance, and requests',
     tiles: [
       { id: 'hr', label: 'HR Department', blurb: 'Employee records, roles, contracts, performance' },
+      { id: 'payroll', label: 'Payroll', blurb: 'Monthly pay runs, payslips, pay categories and advances' },
+      { id: 'appraisal', label: 'Targets & Appraisal', blurb: 'Monthly targets, scorecards and top performers' },
+      { id: 'announcements', label: 'Announcements', blurb: 'Notices every employee sees in their portal' },
+      { id: 'letters', label: 'Letters & Certificates', blurb: 'Experience, salary, appointment and warning letters' },
       { id: 'attendance', label: 'Attendance', blurb: 'Check-in, check-out and duty timings, tracked daily' },
     ],
   },
@@ -38,6 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'grp-finance', label: 'Finance', blurb: 'Money in, money out, and what things cost',
     tiles: [
       { id: 'accounts', label: 'Accounts', blurb: 'Ledger, outstanding balances, bank accounts' },
+      { id: 'billing', label: 'Billing Center', blurb: 'Who owes what, overdue balances and payment reminders' },
       { id: 'closing', label: 'Monthly Closing', blurb: 'Month-end cash position, collections and pending balances' },
       { id: 'reports', label: 'Reports & Finance', blurb: 'Performance charts, loans, revenue targets' },
       { id: 'pricing', label: 'Pricing by Country', blurb: 'Consultation, visa service, and appointment fees' },

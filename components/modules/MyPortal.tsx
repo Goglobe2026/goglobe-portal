@@ -5,6 +5,7 @@ import { money, fmtDate, genId, today, LEAD_STAGES } from '@/lib/constants';
 import { overallPaid } from './Cases';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
+import { AnnouncementsPanel } from './Announcements';
 import type { TeamMember, Lead } from '@/lib/types';
 
 function nowTime() { return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
@@ -67,6 +68,7 @@ export function MyPortal() {
 
   return (
     <div>
+      <AnnouncementsPanel dept={t.department} />
       <div className="card text-white" style={{ background: 'linear-gradient(135deg,#14213D,#1B3358)', border: 'none' }}>
         <div className="font-display text-xl font-semibold">{t.name}</div>
         <div className="text-[12.5px] opacity-85 mt-0.5">{t.role} · {t.department} · {t.employeeId}</div>

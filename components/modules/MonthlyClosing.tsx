@@ -37,7 +37,7 @@ export function MonthlyClosing() {
 }
 
 function ClosingSheet({ month }: { month: string }) {
-  const { transactions, cases, setCases, salarySlips, bankAccounts, monthlyClosings, setMonthlyClosings, logActivity } = useAppData();
+  const { transactions, cases, setCases, payRuns, bankAccounts, monthlyClosings, setMonthlyClosings, logActivity } = useAppData();
   const toast = useToast();
   const todayStr = today();
 
@@ -46,7 +46,7 @@ function ClosingSheet({ month }: { month: string }) {
   const anyEarlier = monthlyClosings.some(c => c.month < month);
   const manualOpeningAllowed = !anyEarlier;
 
-  const f = computeMonth(month, transactions, cases, salarySlips, todayStr);
+  const f = computeMonth(month, transactions, cases, payRuns, todayStr);
   const monthEnded = todayStr > f.end;
 
   const [openingManual, setOpeningManual] = useState('');
@@ -231,9 +231,9 @@ function ClosingSheet({ month }: { month: string }) {
                 <tr style={{ background: '#F2F8F5' }}><td style={{ ...td, fontWeight: 700 }} colSpan={3}>Total paid to staff</td><td style={{ ...td, ...right, fontWeight: 700 }}>{money(f.salaries + f.commissionsBonuses)}</td></tr>
               </tbody>
             </table>}
-        {f.unpaidSlips.length > 0 && (
+        {f.unpaidPayroll.length > 0 && (
           <div style={{ ...hint, marginTop: 10, color: '#8a5a12' }}>
-            Salary slips generated but not yet paid: {f.unpaidSlips.map(s => `${s.staffName} (${monthLabel(s.month)}, ${money(s.netPay)})`).join(' · ')} — total {money(f.unpaidSlipsTotal)}.
+            Payroll approved but not yet paid out: {f.unpaidPayroll.length} staff, total {money(f.unpaidPayrollTotal)} ({monthLabel(f.unpaidPayroll[0].month)}). This is owed to staff and will leave your cash when you pay it.
           </div>
         )}
 

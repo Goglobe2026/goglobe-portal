@@ -18,13 +18,20 @@ const TILE_ICONS: Record<string, ReactElement> = {
   attendance: <path d="M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z" strokeLinecap="round" strokeLinejoin="round" />,
   accounts: <path d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7zM3 10h18M7 15h4" strokeLinecap="round" strokeLinejoin="round" />,
   reports: <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />,
+  billing: <path d="M7 3h10a1 1 0 011 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 011-1zM9 8h6M9 12h6" strokeLinecap="round" strokeLinejoin="round" />,
+  complaints: <path d="M12 4l9 16H3L12 4zM12 10v4M12 17h.01" strokeLinecap="round" strokeLinejoin="round" />,
+  clientdocs: <path d="M7 3h7l5 5v12a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1zM14 3v5h5M9 13h6M9 17h6" strokeLinecap="round" strokeLinejoin="round" />,
+  appraisal: <path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7L12 3z" strokeLinecap="round" strokeLinejoin="round" />,
+  announcements: <path d="M4 10v4h3l6 4V6L7 10H4zM16 9a4 4 0 010 6" strokeLinecap="round" strokeLinejoin="round" />,
+  letters: <path d="M4 6h16v12H4V6zM4 7l8 6 8-6" strokeLinecap="round" strokeLinejoin="round" />,
+  payroll: <path d="M12 3v18M16.5 7.5C16.5 6 14.5 5 12 5S7.5 6.2 7.5 8s1.8 2.4 4.5 3 4.5 1.3 4.5 3.2S14.5 18 12 18s-4.5-1-4.5-2.5" strokeLinecap="round" strokeLinejoin="round" />,
   closing: <path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1zM9 14l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
   pricing: <path d="M9 5H5a1 1 0 00-1 1v4l9 9 5-5-9-9zM7 8h.01" strokeLinecap="round" strokeLinejoin="round" />,
 };
 const DEFAULT_ICON = <path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" strokeLinejoin="round" />;
 
 function useGroupStats(groupId: string) {
-  const { leads, cases, appointments, team, requests, transactions, bankAccounts, loans, monthlyClosings } = useAppData();
+  const { leads, cases, appointments, team, requests, transactions, bankAccounts, loans, monthlyClosings, payRuns } = useAppData();
   const todayStr = today();
 
   if (groupId === 'grp-marketing') {
@@ -51,6 +58,13 @@ function useGroupStats(groupId: string) {
     return [
       { label: 'Total staff', value: String(team.filter(t => !t.employmentStatus || t.employmentStatus === 'Active').length) },
       { label: 'Pending requests', value: String(requests.filter(r => r.status === 'Pending').length) },
+      (() => {
+        const [y, m] = todayStr.slice(0, 7).split('-').map(Number);
+        const d = new Date(y, m - 2, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const r = payRuns.find(x => x.month === key);
+        return { label: `${d.toLocaleDateString('en-GB', { month: 'long' })} payroll`, value: r ? r.status : 'Not started' };
+      })(),
     ];
   }
   if (groupId === 'grp-finance') {
@@ -100,6 +114,25 @@ export function GroupDashboard({ group, onOpenTile, onBack }: { group: NavGroup;
               <div className="font-display text-[22px] font-semibold mt-1">{s.value}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {group.id === 'grp-finance' && (
+        <div className="card mb-5" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#14213D' }}>How money moves in GoGlobe — and where to record it</div>
+          <div style={{ fontSize: 14.5, color: '#5B6270', margin: '4px 0 14px' }}>Revenue is the cash actually received in a month. A balance a client pays later counts in the month it is paid.</div>
+          <div className="grid gap-4 max-md:grid-cols-1" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {[
+              ['1', 'Money in', 'A client pays: open the Case → Record a payment (or Invoice → Mark advance / balance paid). Whatever they still owe stays on the case as pending.'],
+              ['2', 'Money out', 'Salaries: HR → Payroll → run the month and pay. Rent, ads and bills: Accounts → add an expense. Salary advances: Payroll → Advances.'],
+              ['3', 'Month end (by the 5th)', 'Finance → Monthly Closing shows last month’s cash in and out, the balance carried forward, and every client balance still to collect. Close the month to lock it.'],
+            ].map(([n, t, d]) => (
+              <div key={n} style={{ borderLeft: '4px solid #C9922E', paddingLeft: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#14213D' }}>{n}. {t}</div>
+                <div style={{ fontSize: 14.5, lineHeight: 1.6, color: '#333', marginTop: 4 }}>{d}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

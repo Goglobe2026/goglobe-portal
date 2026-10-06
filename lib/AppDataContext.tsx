@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, SalarySlip, MonthlyClosing, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, MonthlyClosing, PayrollCategory, PayRun, StaffAdvance, Complaint, StaffTarget, Appraisal, Announcement, DocRecord, Letter, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
@@ -57,8 +57,16 @@ interface AppDataContextValue {
   marketingMaterials: MarketingMaterial[]; setMarketingMaterials: (u: Updater<MarketingMaterial[]>) => void;
   followUpTemplates: FollowUpTemplate[]; setFollowUpTemplates: (u: Updater<FollowUpTemplate[]>) => void;
   invoices: Invoice[]; setInvoices: (u: Updater<Invoice[]>) => void;
-  salarySlips: SalarySlip[]; setSalarySlips: (u: Updater<SalarySlip[]>) => void;
   monthlyClosings: MonthlyClosing[]; setMonthlyClosings: (u: Updater<MonthlyClosing[]>) => void;
+  payrollCategories: PayrollCategory[]; setPayrollCategories: (u: Updater<PayrollCategory[]>) => void;
+  payRuns: PayRun[]; setPayRuns: (u: Updater<PayRun[]>) => void;
+  staffAdvances: StaffAdvance[]; setStaffAdvances: (u: Updater<StaffAdvance[]>) => void;
+  complaints: Complaint[]; setComplaints: (u: Updater<Complaint[]>) => void;
+  staffTargets: StaffTarget[]; setStaffTargets: (u: Updater<StaffTarget[]>) => void;
+  appraisals: Appraisal[]; setAppraisals: (u: Updater<Appraisal[]>) => void;
+  announcements: Announcement[]; setAnnouncements: (u: Updater<Announcement[]>) => void;
+  docRegister: DocRecord[]; setDocRegister: (u: Updater<DocRecord[]>) => void;
+  letters: Letter[]; setLetters: (u: Updater<Letter[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
   sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
@@ -72,7 +80,8 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
-  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'salaryslips', 'monthlyclosings',
+  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances',
+  'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -104,8 +113,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const marketingMaterials = useSynced<MarketingMaterial[]>('marketingmaterials', []);
   const followUpTemplates = useSynced<FollowUpTemplate[]>('followuptemplates', []);
   const invoices = useSynced<Invoice[]>('invoices', []);
-  const salarySlips = useSynced<SalarySlip[]>('salaryslips', []);
   const monthlyClosings = useSynced<MonthlyClosing[]>('monthlyclosings', []);
+  const payrollCategories = useSynced<PayrollCategory[]>('payrollcategories', []);
+  const payRuns = useSynced<PayRun[]>('payruns', []);
+  const staffAdvances = useSynced<StaffAdvance[]>('staffadvances', []);
+  const complaints = useSynced<Complaint[]>('complaints', []);
+  const staffTargets = useSynced<StaffTarget[]>('stafftargets', []);
+  const appraisals = useSynced<Appraisal[]>('appraisals', []);
+  const announcements = useSynced<Announcement[]>('announcements', []);
+  const docRegister = useSynced<DocRecord[]>('docregister', []);
+  const letters = useSynced<Letter[]>('letters', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
   const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
@@ -138,7 +155,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, sal, mcl, pin, goal, pb, ssu] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, mcl, pcat, prun, sadv, cpl, stg, apr, ann, dreg, ltr, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
@@ -146,7 +163,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         groupTours.setLocal(gt || []); tourMembers.setLocal(tmem || []); countryNotes.setLocal(cn || []);
         loans.setLocal(ln || []); personalExpenses.setLocal(pe || []); clientFeedback.setLocal(cf || []); marketingMaterials.setLocal(mm || []);
         followUpTemplates.setLocal(fut || []); invoices.setLocal(inv || []);
-        salarySlips.setLocal(sal || []); monthlyClosings.setLocal(mcl || []);
+        monthlyClosings.setLocal(mcl || []); payrollCategories.setLocal(pcat || []);
+        payRuns.setLocal(prun || []); staffAdvances.setLocal(sadv || []);
+        complaints.setLocal(cpl || []); staffTargets.setLocal(stg || []); appraisals.setLocal(apr || []);
+        announcements.setLocal(ann || []); docRegister.setLocal(dreg || []); letters.setLocal(ltr || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
         sheetSyncUrl.setLocal(typeof ssu === 'string' ? ssu : '');
@@ -187,8 +207,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     marketingMaterials: marketingMaterials.value, setMarketingMaterials: marketingMaterials.setAndSave,
     followUpTemplates: followUpTemplates.value, setFollowUpTemplates: followUpTemplates.setAndSave,
     invoices: invoices.value, setInvoices: invoices.setAndSave,
-    salarySlips: salarySlips.value, setSalarySlips: salarySlips.setAndSave,
     monthlyClosings: monthlyClosings.value, setMonthlyClosings: monthlyClosings.setAndSave,
+    payrollCategories: payrollCategories.value, setPayrollCategories: payrollCategories.setAndSave,
+    payRuns: payRuns.value, setPayRuns: payRuns.setAndSave,
+    staffAdvances: staffAdvances.value, setStaffAdvances: staffAdvances.setAndSave,
+    complaints: complaints.value, setComplaints: complaints.setAndSave,
+    staffTargets: staffTargets.value, setStaffTargets: staffTargets.setAndSave,
+    appraisals: appraisals.value, setAppraisals: appraisals.setAndSave,
+    announcements: announcements.value, setAnnouncements: announcements.setAndSave,
+    docRegister: docRegister.value, setDocRegister: docRegister.setAndSave,
+    letters: letters.value, setLetters: letters.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
     sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,

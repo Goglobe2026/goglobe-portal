@@ -58,6 +58,8 @@ export interface Case {
   managerApproved: boolean;
   caseType: string;
   expectedPaymentDate?: string;
+  lastReminderDate?: string;
+  reminderCount?: number;
 }
 
 export interface ReferralAgent {
@@ -156,26 +158,84 @@ export interface FollowUpTemplate {
   daysUntilNext: number;
 }
 
-export interface SalarySlip {
+export interface PayrollCategory {
   id: string;
-  slipNumber: string;
+  name: string;
+  kind: 'Earning' | 'Deduction';
+  mode: 'Fixed' | 'Variable';
+  posting: 'Salary' | 'Commission' | 'Bonus' | 'Appreciation';
+  active: boolean;
+  builtin?: boolean;
+}
+
+export interface PayLineItem {
+  categoryId: string;
+  label: string;
+  kind: 'Earning' | 'Deduction';
+  amount: number;
+  posting: string;
+  auto: boolean;
+}
+
+export interface PayAttendance {
+  workingDays: number;
+  elapsedDays: number;
+  present: number;
+  leave: number;
+  absent: number;
+  suggestedDeduction: number;
+}
+
+export interface PayrollLine {
+  id: string;
   staffId: string;
   staffName: string;
   role: string;
   employeeId: string;
   department: string;
-  month: string;
-  date: string;
-  baseSalary: number;
-  allowance: number;
-  commission: number;
-  bonus: number;
-  appreciation: number;
-  fines: number;
-  netPay: number;
-  status: 'Generated' | 'Paid';
+  bankName: string;
+  accountNo: string;
+  items: PayLineItem[];
+  attendance: PayAttendance;
+  slipNumber: string;
+  paid: boolean;
   paidDate: string;
 }
+
+export interface PayRun {
+  id: string;
+  month: string;
+  status: 'Draft' | 'Approved' | 'Paid';
+  createdDate: string;
+  approvedDate: string;
+  paidDate: string;
+  lines: PayrollLine[];
+}
+
+export interface StaffAdvance {
+  id: string;
+  staffId: string;
+  staffName: string;
+  date: string;
+  amount: number;
+  monthlyRecovery: number;
+  recovered: number;
+  reason: string;
+}
+
+export interface Complaint {
+  id: string; date: string; clientName: string; phone: string; caseId: string; category: string;
+  severity: 'Low' | 'Medium' | 'High'; description: string; assignedTo: string;
+  status: 'Open' | 'In progress' | 'Escalated' | 'Resolved'; resolution: string; resolvedDate: string;
+}
+export interface StaffTarget { id: string; staffId: string; month: string; casesTarget: number; revenueTarget: number; }
+export interface Appraisal { id: string; staffId: string; month: string; rating: number; comments: string; score: number; savedDate: string; }
+export interface Announcement { id: string; date: string; title: string; body: string; audience: string; pinned: boolean; createdBy: string; }
+export interface DocRecord {
+  id: string; refNo: string; date: string; clientName: string; phone: string; caseId: string; docType: string; description: string;
+  isOriginal: boolean; receivedBy: string; status: 'With us' | 'Submitted to embassy' | 'Returned to client'; statusDate: string; notes: string;
+}
+export interface Letter { id: string; refNo: string; staffId: string; staffName: string; type: string; date: string; body: string; }
 
 export interface MonthlyClosing {
   id: string;
@@ -273,6 +333,9 @@ export interface TeamMember {
   contractPdf: string;
   contractPdfName: string;
   isAdmin: boolean;
+  bankName?: string;
+  accountNo?: string;
+  payItems?: { categoryId: string; amount: number }[];
 }
 
 export interface Transaction {
@@ -393,8 +456,16 @@ export type Collections = {
   marketingmaterials: MarketingMaterial[];
   followuptemplates: FollowUpTemplate[];
   invoices: Invoice[];
-  salaryslips: SalarySlip[];
   monthlyclosings: MonthlyClosing[];
+  payrollcategories: PayrollCategory[];
+  payruns: PayRun[];
+  staffadvances: StaffAdvance[];
+  complaints: Complaint[];
+  stafftargets: StaffTarget[];
+  appraisals: Appraisal[];
+  announcements: Announcement[];
+  docregister: DocRecord[];
+  letters: Letter[];
 };
 
 export type CollectionName = keyof Collections;
