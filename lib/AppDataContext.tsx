@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, SalarySlip, MonthlyClosing, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
@@ -57,6 +57,8 @@ interface AppDataContextValue {
   marketingMaterials: MarketingMaterial[]; setMarketingMaterials: (u: Updater<MarketingMaterial[]>) => void;
   followUpTemplates: FollowUpTemplate[]; setFollowUpTemplates: (u: Updater<FollowUpTemplate[]>) => void;
   invoices: Invoice[]; setInvoices: (u: Updater<Invoice[]>) => void;
+  salarySlips: SalarySlip[]; setSalarySlips: (u: Updater<SalarySlip[]>) => void;
+  monthlyClosings: MonthlyClosing[]; setMonthlyClosings: (u: Updater<MonthlyClosing[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
   sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
@@ -70,7 +72,7 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
-  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices',
+  'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'salaryslips', 'monthlyclosings',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -102,6 +104,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const marketingMaterials = useSynced<MarketingMaterial[]>('marketingmaterials', []);
   const followUpTemplates = useSynced<FollowUpTemplate[]>('followuptemplates', []);
   const invoices = useSynced<Invoice[]>('invoices', []);
+  const salarySlips = useSynced<SalarySlip[]>('salaryslips', []);
+  const monthlyClosings = useSynced<MonthlyClosing[]>('monthlyclosings', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
   const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
@@ -134,13 +138,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, pin, goal, pb, ssu] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, sal, mcl, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
         requests.setLocal(req || []); activity.setLocal(act || []); testimonials.setLocal(tst || []); referralAgents.setLocal(ra || []);
         groupTours.setLocal(gt || []); tourMembers.setLocal(tmem || []); countryNotes.setLocal(cn || []);
         loans.setLocal(ln || []); personalExpenses.setLocal(pe || []); clientFeedback.setLocal(cf || []); marketingMaterials.setLocal(mm || []);
+        followUpTemplates.setLocal(fut || []); invoices.setLocal(inv || []);
+        salarySlips.setLocal(sal || []); monthlyClosings.setLocal(mcl || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
         sheetSyncUrl.setLocal(typeof ssu === 'string' ? ssu : '');
@@ -181,6 +187,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     marketingMaterials: marketingMaterials.value, setMarketingMaterials: marketingMaterials.setAndSave,
     followUpTemplates: followUpTemplates.value, setFollowUpTemplates: followUpTemplates.setAndSave,
     invoices: invoices.value, setInvoices: invoices.setAndSave,
+    salarySlips: salarySlips.value, setSalarySlips: salarySlips.setAndSave,
+    monthlyClosings: monthlyClosings.value, setMonthlyClosings: monthlyClosings.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
     sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,

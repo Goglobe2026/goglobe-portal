@@ -57,6 +57,7 @@ export interface Case {
   coverLetterChecked: boolean;
   managerApproved: boolean;
   caseType: string;
+  expectedPaymentDate?: string;
 }
 
 export interface ReferralAgent {
@@ -155,6 +156,45 @@ export interface FollowUpTemplate {
   daysUntilNext: number;
 }
 
+export interface SalarySlip {
+  id: string;
+  slipNumber: string;
+  staffId: string;
+  staffName: string;
+  role: string;
+  employeeId: string;
+  department: string;
+  month: string;
+  date: string;
+  baseSalary: number;
+  allowance: number;
+  commission: number;
+  bonus: number;
+  appreciation: number;
+  fines: number;
+  netPay: number;
+  status: 'Generated' | 'Paid';
+  paidDate: string;
+}
+
+export interface MonthlyClosing {
+  id: string;
+  month: string;
+  openingBalance: number;
+  collections: number;
+  otherIncome: number;
+  salaries: number;
+  commissionsBonuses: number;
+  otherExpenses: number;
+  expectedClosing: number;
+  actualClosing: number | null;
+  carriedBalance: number;
+  carriedForwardPending: number;
+  bookedValue: number;
+  note: string;
+  closedDate: string;
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -243,6 +283,7 @@ export interface Transaction {
   party: string;
   amount: number;
   note: string;
+  caseId?: string;
 }
 
 export interface Campaign {
@@ -352,6 +393,8 @@ export type Collections = {
   marketingmaterials: MarketingMaterial[];
   followuptemplates: FollowUpTemplate[];
   invoices: Invoice[];
+  salaryslips: SalarySlip[];
+  monthlyclosings: MonthlyClosing[];
 };
 
 export type CollectionName = keyof Collections;

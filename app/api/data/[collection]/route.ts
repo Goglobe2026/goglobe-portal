@@ -7,7 +7,7 @@ const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook'
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'salaryslips', 'monthlyclosings', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
 ];
 const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 
@@ -16,7 +16,7 @@ const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 // even if they craft a request by hand rather than clicking through the UI.
 const ADMIN_ONLY_COLLECTIONS = [
   'bankaccounts', 'loans', 'personalexpenses', 'referralagents',
-  'clientfeedback', 'journalvouchers', 'ceopin', 'revenuegoal',
+  'clientfeedback', 'journalvouchers', 'ceopin', 'revenuegoal', 'monthlyclosings', 'salaryslips',
 ];
 
 // Fields stripped from 'team' records before a non-admin ever sees them —

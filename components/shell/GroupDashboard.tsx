@@ -18,12 +18,13 @@ const TILE_ICONS: Record<string, ReactElement> = {
   attendance: <path d="M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z" strokeLinecap="round" strokeLinejoin="round" />,
   accounts: <path d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7zM3 10h18M7 15h4" strokeLinecap="round" strokeLinejoin="round" />,
   reports: <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />,
+  closing: <path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1zM9 14l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
   pricing: <path d="M9 5H5a1 1 0 00-1 1v4l9 9 5-5-9-9zM7 8h.01" strokeLinecap="round" strokeLinejoin="round" />,
 };
 const DEFAULT_ICON = <path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" strokeLinejoin="round" />;
 
 function useGroupStats(groupId: string) {
-  const { leads, cases, appointments, team, requests, transactions, bankAccounts, loans } = useAppData();
+  const { leads, cases, appointments, team, requests, transactions, bankAccounts, loans, monthlyClosings } = useAppData();
   const todayStr = today();
 
   if (groupId === 'grp-marketing') {
@@ -57,9 +58,18 @@ function useGroupStats(groupId: string) {
     const thisMonth = todayStr.slice(0, 7);
     const income = transactions.filter(t => t.type === 'Income' && t.date.slice(0, 7) === thisMonth).reduce((s, t) => s + t.amount, 0);
     const expense = transactions.filter(t => t.type === 'Expense' && t.date.slice(0, 7) === thisMonth).reduce((s, t) => s + t.amount, 0);
+    const pending = cases.reduce((s, c) => s + Math.max(0, c.fee + c.apptFee + c.consultFee - c.discount - (c.paid + c.apptPaid + c.consultPaid)), 0);
+    const [py, pm] = thisMonth.split('-').map(Number);
+    const pd = new Date(py, pm - 2, 1);
+    const prevKey = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}`;
+    const prevName = pd.toLocaleDateString('en-GB', { month: 'long' });
+    const closed = monthlyClosings.some(c => c.month === prevKey);
+    const hadActivity = transactions.some(t => t.date.slice(0, 7) === prevKey);
     return [
       { label: 'Bank + cash balance', value: money(totalBank) },
       { label: 'Cash flow this month', value: money(income - expense) },
+      { label: 'Pending collections', value: money(pending) },
+      { label: `${prevName} closing`, value: closed ? 'Closed' : hadActivity ? 'Due by the 5th' : 'No activity' },
     ];
   }
   return [];

@@ -1,11 +1,16 @@
 'use client';
 import { useState } from 'react';
+import { printSheet } from '@/lib/printSheet';
+import type { CSSProperties } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today, DEPARTMENTS, JOB_DESCRIPTIONS } from '@/lib/constants';
 import { overallPaid } from './Cases';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { TeamMember } from '@/lib/types';
+import type { TeamMember, SalarySlip } from '@/lib/types';
+import { LOGO_FULL } from '@/lib/logo';
+import { rupeesInWords } from '@/lib/moneyWords';
+import { monthLabel, shiftMonth } from '@/lib/finance';
 import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
@@ -272,17 +277,11 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
   const bonusEarned = won * t.bonusPerClose;
   const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
   const bonusDue = Math.max(0, bonusEarned - bonusPaid);
+  const [slipsOpen, setSlipsOpen] = useState(false);
   const myAdj = adjustments.filter(a => a.staffId === t.id);
   const apprTotal = myAdj.filter(a => a.type === 'Bonus').reduce((s, a) => s + a.amount, 0);
   const fineTotal = myAdj.filter(a => a.type === 'Fine').reduce((s, a) => s + a.amount, 0);
 
-  function paySalary() {
-    const total = t.salary + (t.monthlyAllowance || 0);
-    setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Salary', party: t.name, amount: total, note: t.monthlyAllowance ? `Monthly salary + allowance (${money(t.salary)} + ${money(t.monthlyAllowance)})` : 'Monthly salary' }]);
-    setTeam(prev => prev.map(x => x.id === t.id ? { ...x, lastSalaryPaid: today() } : x));
-    logActivity(`Salary paid — ${t.name}, ${money(total)}`);
-    toast('Salary recorded');
-  }
   function payCommission() {
     setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Commission', party: t.name, amount: commissionDue, note: 'Sales commission' }]);
     logActivity(`Commission paid — ${t.name}, ${money(commissionDue)}`);
@@ -320,7 +319,7 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
         </>}
         {(apprTotal || fineTotal) ? <Row label="Appreciation / fines" value={`+${money(apprTotal)} / -${money(fineTotal)}`} last /> : null}
         <div className="flex gap-2 flex-wrap mt-2.5">
-          <button className="btn btn-sm flex-1" onClick={paySalary}>Pay salary</button>
+          <button className="btn btn-sm flex-1" onClick={() => setSlipsOpen(true)}>Salary slips</button>
           {isSales && quotaMet && commissionDue > 0 && <button className="btn btn-sm flex-1" onClick={payCommission}>Pay commission</button>}
           {isSales && bonusDue > 0 && <button className="btn btn-sm flex-1" onClick={payBonus}>Pay bonus</button>}
         </div>
@@ -329,6 +328,10 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
           <button className="btn btn-sm flex-1" style={{ color: 'var(--red)' }} onClick={() => onAdjust('Fine')}>+ Fine</button>
         </div>
       </div>
+
+      <Modal open={slipsOpen} onClose={() => setSlipsOpen(false)} wide>
+        {slipsOpen && <SalarySlipsPanel staff={t} onClose={() => setSlipsOpen(false)} />}
+      </Modal>
     </div>
   );
 }
@@ -548,6 +551,255 @@ function PlaybookEditor() {
           )}
         </div>
       )}
+    </>
+  );
+}
+
+
+// ---------------------------------------------------------------------
+// Salary slips
+// ---------------------------------------------------------------------
+function SalarySlipsPanel({ staff, onClose }: { staff: TeamMember; onClose: () => void }) {
+  const { salarySlips } = useAppData();
+  const [mode, setMode] = useState<'list' | 'new'>('list');
+  const [viewId, setViewId] = useState<string | null>(null);
+  const mine = salarySlips.filter(s => s.staffId === staff.id).sort((a, b) => b.month.localeCompare(a.month));
+
+  if (viewId) return <SalarySlipView slipId={viewId} onBack={() => setViewId(null)} />;
+  if (mode === 'new') return <SalarySlipForm staff={staff} onCancel={() => setMode('list')} onCreated={id => { setMode('list'); setViewId(id); }} />;
+
+  return (
+    <>
+      <ModalTitle>Salary slips — {staff.name}</ModalTitle>
+      {mine.length === 0
+        ? <div className="text-[15px] text-[var(--muted)] mb-4">No salary slip generated yet for this employee.</div>
+        : <div className="flex flex-col gap-2 mb-4">
+            {mine.map(s => (
+              <button key={s.id} className="btn text-left flex items-center justify-between" style={{ fontSize: 15, padding: '12px 14px' }} onClick={() => setViewId(s.id)}>
+                <span><b>{monthLabel(s.month)}</b> &nbsp;·&nbsp; {s.slipNumber}</span>
+                <span>{money(s.netPay)} &nbsp;
+                  <span style={{ color: s.status === 'Paid' ? 'var(--green)' : '#B5433A', fontWeight: 600 }}>{s.status === 'Paid' ? `Paid ${fmtDate(s.paidDate)}` : 'Not paid yet'}</span>
+                </span>
+              </button>
+            ))}
+          </div>}
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Close</button>
+        <button className="btn btn-primary" onClick={() => setMode('new')}>+ New salary slip</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function SalarySlipForm({ staff: t, onCancel, onCreated }: { staff: TeamMember; onCancel: () => void; onCreated: (id: string) => void }) {
+  const { cases, transactions, adjustments, salarySlips, setSalarySlips, logActivity } = useAppData();
+  const toast = useToast();
+  const todayStr = today();
+  // Salary for a month is normally prepared in the first days of the next
+  // month, so early in the month we default to the month that just ended.
+  const currentMonth = todayStr.slice(0, 7);
+  const initialMonth = Number(todayStr.slice(8, 10)) <= 15 ? shiftMonth(currentMonth, -1) : currentMonth;
+  const monthOptions = [0, -1, -2, -3, -4, -5].map(d => shiftMonth(currentMonth, d));
+
+  const myCases = cases.filter(c => c.consultant === t.id);
+  const won = myCases.filter(c => c.status === 'Approved').length;
+  const revenue = myCases.reduce((s, c) => s + overallPaid(c), 0);
+  const commissionEarned = Math.round(revenue * (t.commissionPercent / 100));
+  const commissionPaid = transactions.filter(x => x.category === 'Commission' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
+  const bonusEarned = won * t.bonusPerClose;
+  const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
+  const quota = t.monthlyQuota || 5;
+
+  function defaultsFor(m: string) {
+    const adj = adjustments.filter(a => a.staffId === t.id && a.date.slice(0, 7) === m);
+    const closedInMonth = myCases.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === m).length;
+    const quotaMet = t.department !== 'Sales' || closedInMonth >= quota;
+    return {
+      base: t.salary, allowance: t.monthlyAllowance || 0,
+      commission: quotaMet ? Math.max(0, commissionEarned - commissionPaid) : 0,
+      bonus: Math.max(0, bonusEarned - bonusPaid),
+      appreciation: adj.filter(a => a.type === 'Bonus').reduce((s, a) => s + a.amount, 0),
+      fines: adj.filter(a => a.type === 'Fine').reduce((s, a) => s + a.amount, 0),
+      quotaMet, closedInMonth,
+    };
+  }
+  const d0 = defaultsFor(initialMonth);
+  const [month, setMonth] = useState(initialMonth);
+  const [base, setBase] = useState(d0.base); const [allowance, setAllowance] = useState(d0.allowance);
+  const [commission, setCommission] = useState(d0.commission); const [bonus, setBonus] = useState(d0.bonus);
+  const [appreciation, setAppreciation] = useState(d0.appreciation); const [fines, setFines] = useState(d0.fines);
+  const [quotaNote, setQuotaNote] = useState(!d0.quotaMet ? d0.closedInMonth : -1);
+
+  function changeMonth(m: string) {
+    const d = defaultsFor(m);
+    setMonth(m); setBase(d.base); setAllowance(d.allowance); setCommission(d.commission); setBonus(d.bonus);
+    setAppreciation(d.appreciation); setFines(d.fines); setQuotaNote(!d.quotaMet ? d.closedInMonth : -1);
+  }
+
+  const net = base + allowance + commission + bonus + appreciation - fines;
+  const existing = salarySlips.find(s => s.staffId === t.id && s.month === month);
+
+  function save() {
+    if (existing) return;
+    const seq = String(salarySlips.filter(s => s.date === todayStr).length + 1).padStart(2, '0');
+    const slip: SalarySlip = {
+      id: genId('sal'), slipNumber: `GG-SAL-${todayStr.replace(/-/g, '').slice(2)}-${seq}`,
+      staffId: t.id, staffName: t.name, role: t.role, employeeId: t.employeeId, department: t.department,
+      month, date: todayStr, baseSalary: base, allowance, commission, bonus, appreciation, fines, netPay: net,
+      status: 'Generated', paidDate: '',
+    };
+    setSalarySlips(prev => [...prev, slip]);
+    logActivity(`Salary slip generated — ${t.name}, ${monthLabel(month)}, ${money(net)}`);
+    toast('Salary slip generated');
+    onCreated(slip.id);
+  }
+
+  const num = (v: number, set: (n: number) => void) => <input type="number" value={v} onChange={e => set(Number(e.target.value))} style={{ fontSize: 15 }} />;
+  return (
+    <>
+      <ModalTitle>New salary slip — {t.name}</ModalTitle>
+      <Field label="Salary month">
+        <select value={month} onChange={e => changeMonth(e.target.value)} style={{ fontSize: 15 }}>
+          {monthOptions.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+        </select>
+      </Field>
+      <div className="text-[13.5px] text-[var(--muted)] mb-3">Amounts are filled in from this employee’s record — change anything that needs adjusting before you generate.</div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Base salary (PKR)">{num(base, setBase)}</Field>
+        <Field label="Monthly allowance (PKR)">{num(allowance, setAllowance)}</Field>
+        <Field label="Commission (PKR)">{num(commission, setCommission)}</Field>
+        <Field label="Closed-case bonus (PKR)">{num(bonus, setBonus)}</Field>
+        <Field label="Appreciation (PKR)">{num(appreciation, setAppreciation)}</Field>
+        <Field label="Fines (PKR)">{num(fines, setFines)}</Field>
+      </div>
+      {quotaNote >= 0 && (
+        <div className="text-[13.5px] mb-3" style={{ color: '#8a5a12' }}>
+          Commission is set to 0 because {t.name.split(' ')[0]} closed {quotaNote} of {quota} cases in {monthLabel(month)}. Enter an amount if you want to pay it anyway.
+        </div>
+      )}
+      {existing && <div className="text-[13.5px] mb-3" style={{ color: '#B5433A' }}>A salary slip for {monthLabel(month)} already exists ({existing.slipNumber}). Open it from the list instead.</div>}
+      <div className="card mb-4" style={{ background: 'var(--gold-50)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.04em', color: 'var(--muted)' }}>NET PAY</div>
+        <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 30, fontWeight: 700, color: '#14213D' }}>{money(net)}</div>
+        <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>{rupeesInWords(net)}</div>
+      </div>
+      <ModalFoot>
+        <button className="btn" onClick={onCancel}>Back</button>
+        <button className="btn btn-primary" onClick={save} disabled={!!existing}>Generate slip</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function SalarySlipView({ slipId, onBack }: { slipId: string; onBack: () => void }) {
+  const { salarySlips, setSalarySlips, setTransactions, setTeam, logActivity } = useAppData();
+  const toast = useToast();
+  const s = salarySlips.find(x => x.id === slipId)!;
+
+  function markPaid() {
+    if (s.status === 'Paid') return;
+    const note = `Salary slip ${s.slipNumber} — ${monthLabel(s.month)}`;
+    const parts: [string, number][] = [
+      ['Salary', Math.max(0, s.baseSalary + s.allowance - s.fines)],
+      ['Commission', s.commission], ['Bonus', s.bonus], ['Appreciation', s.appreciation],
+    ];
+    setTransactions(prev => [...prev, ...parts.filter(([, amt]) => amt > 0).map(([category, amount]) => ({
+      id: genId('tx'), date: today(), type: 'Expense' as const, category, party: s.staffName, amount, note,
+    }))]);
+    setSalarySlips(prev => prev.map(x => x.id === s.id ? { ...x, status: 'Paid' as const, paidDate: today() } : x));
+    setTeam(prev => prev.map(x => x.id === s.staffId ? { ...x, lastSalaryPaid: today() } : x));
+    logActivity(`Salary paid — ${s.staffName}, ${monthLabel(s.month)}, ${money(s.netPay)}`);
+    toast('Salary recorded as paid');
+  }
+
+  const F = 'Arial, Helvetica, sans-serif';
+  const cell: CSSProperties = { border: '1px solid #cfd8dc', padding: '8px 14px', fontSize: 15, fontFamily: F };
+  const head: CSSProperties = { ...cell, background: '#14213D', color: '#fff', fontWeight: 700, fontSize: 14 };
+  const earn: [string, number][] = [['Base salary', s.baseSalary], ['Monthly allowance', s.allowance], ['Commission', s.commission], ['Closed-case bonus', s.bonus], ['Appreciation', s.appreciation]];
+  const gross = s.baseSalary + s.allowance + s.commission + s.bonus + s.appreciation;
+
+  return (
+    <>
+      <div className="no-print flex items-center justify-between mb-3.5">
+        <button className="btn btn-sm" onClick={onBack}>← All slips</button>
+        <div className="flex items-center gap-2">
+          {s.status === 'Generated'
+            ? <button className="btn btn-sm" onClick={markPaid}>Mark as paid</button>
+            : <span style={{ color: 'var(--green)', fontSize: 14, fontWeight: 600 }}>✓ Paid {fmtDate(s.paidDate)}</span>}
+          <button className="btn btn-sm btn-primary" onClick={printSheet}>Print / Save as PDF</button>
+        </div>
+      </div>
+
+      <div id="invoice-print-area" style={{ background: '#fff', color: '#1a1a1a', fontFamily: F, padding: 4 }}>
+        <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+          <img src={LOGO_FULL} style={{ height: 60 }} alt="GoGlobe Consultant" />
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 30, fontWeight: 700, color: '#14213D', letterSpacing: '.02em' }}>SALARY SLIP</div>
+            <div style={{ fontSize: 15 }}><b>Pay period:</b> {monthLabel(s.month)}</div>
+            <div style={{ fontSize: 15 }}><b>Slip No:</b> {s.slipNumber}</div>
+          </div>
+        </div>
+        <div style={{ height: 5, background: 'linear-gradient(90deg,#1FA463,#1F6E8C,#14213D)', marginBottom: 16 }} />
+
+        <div className="avoid-break" style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 12, fontSize: 15, lineHeight: 1.65 }}>
+            <div style={{ fontWeight: 700, color: '#14213D', marginBottom: 4 }}>EMPLOYEE</div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>{s.staffName}</div>
+            <div>{s.role}</div>
+            <div>ID: {s.employeeId} &nbsp;·&nbsp; {s.department}</div>
+          </div>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 14, fontSize: 15, lineHeight: 1.65 }}>
+            <div style={{ fontWeight: 700, color: '#14213D', marginBottom: 4 }}>PAYMENT</div>
+            <div>Prepared on {fmtDate(s.date)}</div>
+            <div>Status: <b style={{ color: s.status === 'Paid' ? '#0B6E4F' : '#B5433A' }}>{s.status === 'Paid' ? 'PAID' : 'NOT PAID YET'}</b></div>
+            <div>{s.status === 'Paid' ? `Paid on ${fmtDate(s.paidDate)}` : 'Payment date to be recorded'}</div>
+          </div>
+        </div>
+
+        <div className="avoid-break">
+          <div style={{ fontWeight: 700, fontSize: 16, color: '#14213D', marginBottom: 6 }}>EARNINGS</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+            <thead><tr><th style={{ ...head, textAlign: 'left' }}>Description</th><th style={{ ...head, textAlign: 'right', width: 190 }}>Amount (PKR)</th></tr></thead>
+            <tbody>
+              {earn.filter(([, a], i) => a > 0 || i === 0).map(([label, a]) => (
+                <tr key={label}><td style={cell}>{label}</td><td style={{ ...cell, textAlign: 'right' }}>{a.toLocaleString()}</td></tr>
+              ))}
+              <tr><td style={{ ...cell, fontWeight: 700, background: '#F7F9FA' }}>Gross earnings</td><td style={{ ...cell, textAlign: 'right', fontWeight: 700, background: '#F7F9FA' }}>{gross.toLocaleString()}</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        {s.fines > 0 && (
+          <div className="avoid-break">
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#14213D', marginBottom: 6 }}>DEDUCTIONS</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+              <thead><tr><th style={{ ...head, textAlign: 'left' }}>Description</th><th style={{ ...head, textAlign: 'right', width: 190 }}>Amount (PKR)</th></tr></thead>
+              <tbody><tr><td style={cell}>Fines</td><td style={{ ...cell, textAlign: 'right', color: '#B5433A' }}>− {s.fines.toLocaleString()}</td></tr></tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="avoid-break" style={{ background: '#FBF0DD', border: '1px solid #E8C784', padding: '14px 20px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: 700, fontSize: 17, color: '#14213D' }}>NET PAY</div>
+            <div style={{ fontWeight: 700, fontSize: 30, color: '#0B6E4F' }}>PKR {s.netPay.toLocaleString()}</div>
+          </div>
+          <div style={{ fontSize: 14.5, marginTop: 6, color: '#444' }}>{rupeesInWords(s.netPay)}</div>
+        </div>
+
+        <div className="avoid-break" style={{ display: 'flex', gap: 48, margin: '24px 0 10px' }}>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 6, fontSize: 14 }}>EMPLOYEE SIGNATURE</div>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 6, fontSize: 14 }}>AUTHORIZED SIGNATURE / COMPANY STAMP</div>
+        </div>
+        <div style={{ fontSize: 12.5, color: '#666', marginBottom: 12 }}>This is a computer-generated salary slip issued by GoGlobe Consultant.</div>
+
+        <div className="avoid-break" style={{ background: '#14213D', color: '#fff', padding: '12px 16px', fontSize: 13, display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+          <div><b>WhatsApp</b><br />0317-9911228 | 0327-9911228</div>
+          <div><b>PTCL</b><br />051-6126833</div>
+          <div><b>Email</b><br />info@goglobeconsultants.com</div>
+          <div><b>Website</b><br />goglobeconsultants.com</div>
+        </div>
+      </div>
     </>
   );
 }

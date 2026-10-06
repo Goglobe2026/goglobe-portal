@@ -99,11 +99,13 @@ tbody tr:hover { background: #F7FBF9; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
 
-/* Invoice printing: only the invoice sheet is shown when printing, the
-   rest of the app (sidebar, modal chrome, buttons) is hidden. */
+/* Printing: only the clean copy made by printSheet() is shown. */
+#print-root { display: none; }
 @media print {
-  body * { visibility: hidden; }
-  #invoice-print-area, #invoice-print-area * { visibility: visible; }
-  #invoice-print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  @page { size: A4; margin: 12mm; }
+  body.printing > *:not(#print-root) { display: none !important; }
+  body.printing #print-root { display: block !important; }
+  body.printing { background: #fff !important; }
   .no-print { display: none !important; }
+  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
 }

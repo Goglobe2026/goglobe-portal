@@ -1,4 +1,5 @@
 'use client';
+import { createPortal } from 'react-dom';
 import { ReactNode } from 'react';
 
 export function Stamp({ text, className = '' }: { text: string; className?: string }) {
@@ -26,20 +27,23 @@ export function Stamp({ text, className = '' }: { text: string; className?: stri
 }
 
 export function Modal({ open, onClose, children, wide = false }: { open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  if (!open) return null;
-  return (
+  if (!open || typeof document === 'undefined') return null;
+  // Rendered at the page level (not inside whatever opened it). A card that
+  // lifts on hover would otherwise trap this window inside its own box.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-auto p-5"
+      className="modal-overlay fixed inset-0 z-50 flex items-start justify-center overflow-auto p-5"
       style={{ background: 'rgba(15,42,34,.45)', backdropFilter: 'blur(3px)', paddingTop: '5vh' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="bg-white rounded-2xl w-full p-6"
-        style={{ maxWidth: wide ? 720 : 540, boxShadow: '0 30px 70px rgba(11,110,79,.28)' }}
+        className="modal-box bg-white rounded-2xl w-full p-6"
+        style={{ maxWidth: wide ? 820 : 540, boxShadow: '0 30px 70px rgba(11,110,79,.28)' }}
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

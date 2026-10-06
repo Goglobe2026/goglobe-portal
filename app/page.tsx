@@ -14,6 +14,7 @@ import { HR } from '@/components/modules/HR';
 import { Attendance } from '@/components/modules/Attendance';
 import { Accounts } from '@/components/modules/Accounts';
 import { Reports } from '@/components/modules/Reports';
+import { MonthlyClosing } from '@/components/modules/MonthlyClosing';
 import { Testimonials } from '@/components/modules/Testimonials';
 import { ReferralAgents } from '@/components/modules/ReferralAgents';
 import { GroupTours } from '@/components/modules/GroupTours';
@@ -83,6 +84,7 @@ function PortalApp() {
       {tab === 'attendance' && <Attendance />}
       {tab === 'accounts' && <Accounts />}
       {tab === 'reports' && <Reports />}
+      {tab === 'closing' && <MonthlyClosing />}
       {tab === 'testimonials' && <Testimonials />}
       {tab === 'referralagents' && <ReferralAgents />}
       {tab === 'grouptours' && <GroupTours />}

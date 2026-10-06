@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'grp-finance', label: 'Finance', blurb: 'Money in, money out, and what things cost',
     tiles: [
       { id: 'accounts', label: 'Accounts', blurb: 'Ledger, outstanding balances, bank accounts' },
+      { id: 'closing', label: 'Monthly Closing', blurb: 'Month-end cash position, collections and pending balances' },
       { id: 'reports', label: 'Reports & Finance', blurb: 'Performance charts, loans, revenue targets' },
       { id: 'pricing', label: 'Pricing by Country', blurb: 'Consultation, visa service, and appointment fees' },
     ],

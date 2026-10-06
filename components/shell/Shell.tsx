@@ -22,6 +22,7 @@ const TITLES: Record<string, [string, string]> = {
   attendance: ['Attendance', 'Check-in, check-out and duty timings, tracked daily'],
   'grp-finance': ['Finance', 'Money in, money out, and what things cost'],
   accounts: ['Accounts', 'Income, expenses, receivables, payroll and commissions'],
+  closing: ['Monthly Closing', 'Month-end cash position, collections received, pending balances and the balance carried forward'],
   reports: ['Reports & Finance', 'Weekly comparison, monthly trend, bank balances, expenses and journal vouchers'],
   pricing: ['Pricing by country', 'Consultation, visa service and appointment fees'],
   myportal: ['My Portal', 'Your own attendance, cases and earnings'],
@@ -35,7 +36,7 @@ export function Shell({
   topAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const { session, setSession, team, leads, requests, clientFeedback } = useAppData();
+  const { session, setSession, team, leads, requests, clientFeedback, transactions, monthlyClosings } = useAppData();
   const toast = useToast();
   const isCeo = session?.type === 'ceo' || (session?.type === 'employee' && !!team.find(t => t.id === session.staffId)?.isAdmin);
   const me = session?.type === 'employee' ? team.find(t => t.id === session.staffId) : null;
@@ -47,9 +48,13 @@ export function Shell({
   const urgentFeedback = clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length;
   // Badges now live on the group tile, since the individual leaf modules
   // (Leads, HR Department) aren't directly in the sidebar list anymore.
+  // A gentle nudge: last month had activity but hasn't been closed yet.
+  const prevMonthKey = (() => { const [y, m] = todayStr.slice(0, 7).split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+  const closingPending = isCeo && transactions.some(t => t.date.slice(0, 7) === prevMonthKey) && !monthlyClosings.some(c => c.month === prevMonthKey) ? 1 : 0;
   const GROUP_BADGES: Record<string, number> = {
     'grp-marketing': overdueLeads,
     'grp-hr': pendingRequests + urgentFeedback,
+    'grp-finance': closingPending,
   };
 
   const activeGroup = findGroupForTab(currentTab);

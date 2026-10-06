@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { printSheet } from '@/lib/printSheet';
 import type { CSSProperties } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, DESTINATIONS, visaTypesFor, CASE_STAGES, CASE_STATUSES, CASE_TYPES, genId, today, getDocTemplate, DEFAULT_RATES, fmtDate } from '@/lib/constants';
@@ -11,6 +12,22 @@ import { LOGO_FULL } from '@/lib/logo';
 
 export function overallCharge(c: Case) { return Math.max(0, c.fee + c.apptFee + c.consultFee - c.discount); }
 export function grossCharge(c: Case) { return c.fee + c.apptFee + c.consultFee; }
+// Spreads a payment across consultation, visa and appointment fee balances
+// (the same order the payment form offers) and says how much actually fit.
+export function allocateCasePayment(c: Case, amount: number) {
+  let left = amount;
+  const patch = { paid: c.paid, apptPaid: c.apptPaid, consultPaid: c.consultPaid };
+  const parts: { category: string; amount: number }[] = [];
+  const take = (bal: number, key: 'paid' | 'apptPaid' | 'consultPaid', category: string) => {
+    const t = Math.min(left, Math.max(0, bal));
+    if (t > 0) { patch[key] += t; left -= t; parts.push({ category, amount: t }); }
+  };
+  take(c.consultFee - c.consultPaid, 'consultPaid', 'Consultation fee');
+  take(c.fee - c.paid, 'paid', 'Case payment');
+  take(c.apptFee - c.apptPaid, 'apptPaid', 'Appointment fee');
+  return { patch, parts, applied: amount - left };
+}
+
 export function overallPaid(c: Case) { return c.paid + c.apptPaid + c.consultPaid; }
 
 function getRate(rateCard: any[], destination: string, visaType: string) {
@@ -481,7 +498,7 @@ function PaymentForm({ caseId, onClose }: { caseId: string; onClose: () => void 
     setTransactions(prev => [...prev, {
       id: genId('tx'), date: today(), type: 'Income',
       category: target === 'appt' ? 'Appointment fee' : target === 'consult' ? 'Consultation fee' : 'Case payment',
-      party: c.name, amount, note,
+      party: c.name, amount, note, caseId: c.id,
     }]);
     logActivity(`Payment received — ${c.name}, ${money(amount)} (${labels[target]})`);
     toast('Payment recorded');
@@ -563,23 +580,59 @@ function InvoiceForm({ caseId, onClose, onCreated }: { caseId: string; onClose: 
 }
 
 function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
-  const { invoices, setInvoices, logActivity } = useAppData();
+  const { invoices, setInvoices, logActivity, cases, setCases, setTransactions } = useAppData();
   const toast = useToast();
   const inv = invoices.find(i => i.id === invoiceId)!;
+  const caseRec = cases.find(x => x.id === inv.caseId);
   const [paymentMethod, setPaymentMethod] = useState('Online (Bank Transfer)');
 
   function update(patch: Partial<Invoice>) {
     setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, ...patch } : i));
   }
+  // Records the money against the case and in Accounts, so the monthly
+  // closing sees it. Returns how much was actually applied.
+  function recordToAccounts(amount: number, label: string) {
+    if (!caseRec) return 0;
+    const { patch, parts, applied } = allocateCasePayment(caseRec, amount);
+    if (applied <= 0) return 0;
+    setCases(prev => prev.map(x => x.id === caseRec.id ? { ...x, ...patch } : x));
+    setTransactions(prev => [...prev, ...parts.map(p => ({
+      id: genId('tx'), date: today(), type: 'Income' as const, category: p.category, party: caseRec.name,
+      amount: p.amount, note: `${label} — invoice ${inv.invoiceNumber} (${paymentMethod})`, caseId: caseRec.id,
+    }))]);
+    return applied;
+  }
+  function confirmAlreadyReceived(received: number) {
+    return window.confirm(
+      `This case already shows ${money(received)} received.\n\n` +
+      `OK = mark the invoice as paid WITHOUT adding a second payment.\n` +
+      `Cancel = go back.`);
+  }
   function markAdvancePaid() {
+    let applied = 0;
+    if (caseRec && overallPaid(caseRec) >= inv.advanceAmount) {
+      if (!confirmAlreadyReceived(overallPaid(caseRec))) return;
+    } else {
+      applied = recordToAccounts(inv.advanceAmount, 'Advance');
+      if (applied < inv.advanceAmount) toast(`Only ${money(applied)} could be applied to the case balance — check the case fees.`);
+    }
     update({ advanceStatus: 'Paid', advancePaidDate: today(), advancePaymentMethod: paymentMethod });
-    logActivity(`Advance payment recorded for invoice ${inv.invoiceNumber}`);
-    toast('Advance marked as paid');
+    logActivity(`Advance received for invoice ${inv.invoiceNumber}${applied ? ` — ${money(applied)}` : ''}`);
+    if (applied >= inv.advanceAmount) toast('Advance recorded in Accounts');
+    else if (!applied) toast('Advance marked as paid');
   }
   function markBalancePaid() {
+    let applied = 0;
+    if (caseRec && overallPaid(caseRec) >= inv.totalAmount) {
+      if (!confirmAlreadyReceived(overallPaid(caseRec))) return;
+    } else {
+      applied = recordToAccounts(inv.balanceAmount, 'Final balance');
+      if (applied < inv.balanceAmount) toast(`Only ${money(applied)} could be applied to the case balance — check the case fees.`);
+    }
     update({ balanceStatus: 'Paid', balancePaidDate: today() });
-    logActivity(`Balance payment recorded for invoice ${inv.invoiceNumber}`);
-    toast('Balance marked as paid');
+    logActivity(`Balance received for invoice ${inv.invoiceNumber}${applied ? ` — ${money(applied)}` : ''}`);
+    if (applied >= inv.balanceAmount) toast('Balance recorded in Accounts');
+    else if (!applied) toast('Balance marked as paid');
   }
   function toggleAcknowledged() {
     const next = !inv.clientAcknowledged;
@@ -587,7 +640,7 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
     if (next) { logActivity(`Client acknowledged terms for invoice ${inv.invoiceNumber}`); toast('Marked as acknowledged by client'); }
   }
 
-  const T: CSSProperties = { border: '1px solid #cfd8dc', padding: '6px 9px', fontSize: 11.5 };
+  const T: CSSProperties = { border: '1px solid #cfd8dc', padding: '8px 11px', fontSize: 13.5 };
   const TH: CSSProperties = { ...T, background: '#14213D', color: '#fff', fontWeight: 600 };
 
   return (
@@ -598,14 +651,14 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
           {!inv.clientAcknowledged
             ? <button className="btn btn-sm" onClick={toggleAcknowledged}>Mark client acknowledged</button>
             : <span className="text-[12px]" style={{ color: 'var(--green)' }}>✓ Acknowledged {fmtDate(inv.clientAcknowledgedDate)}</span>}
-          <button className="btn btn-sm btn-primary" onClick={() => window.print()}>Print / Save as PDF</button>
+          <button className="btn btn-sm btn-primary" onClick={printSheet}>Print / Save as PDF</button>
         </div>
       </div>
 
       {inv.advanceStatus === 'Due' && (
         <div className="no-print card mb-3" style={{ background: 'var(--gold-50)' }}>
           <div className="flex items-center justify-between">
-            <span className="text-[12.5px]">Advance of {money(inv.advanceAmount)} not yet recorded as paid.</span>
+            <span className="text-[14px]">Advance of {money(inv.advanceAmount)} not yet recorded as paid.<br /><span className="text-[12.5px] text-[var(--muted)]">Marking it paid also records the payment in Accounts — do not record it again under “Record a payment”.</span></span>
             <div className="flex items-center gap-2">
               <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="!w-auto text-[12px]">
                 <option>Online (Bank Transfer)</option><option>Cash</option><option>Easypaisa</option><option>JazzCash</option>
@@ -618,14 +671,14 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
       {inv.advanceStatus === 'Paid' && inv.balanceStatus === 'Pending' && (
         <div className="no-print card mb-3" style={{ background: 'var(--gold-50)' }}>
           <div className="flex items-center justify-between">
-            <span className="text-[12.5px]">Balance of {money(inv.balanceAmount)} still pending.</span>
+            <span className="text-[14px]">Balance of {money(inv.balanceAmount)} still pending.<br /><span className="text-[12.5px] text-[var(--muted)]">Marking it paid also records the payment in Accounts.</span></span>
             <button className="btn btn-sm" onClick={markBalancePaid}>Mark balance paid</button>
           </div>
         </div>
       )}
 
       <div id="invoice-print-area" style={{ background: '#fff', color: '#1a1a1a', fontFamily: 'Arial, sans-serif' }}>
-        <div style={{ background: '#FBF0DD', border: '1px solid #E8C784', padding: '8px 12px', fontSize: 10.5, marginBottom: 10, lineHeight: 1.4 }}>
+        <div style={{ background: '#FBF0DD', border: '1px solid #E8C784', padding: '8px 12px', fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
           <b>PAYMENT SECURITY ADVISORY:</b> All payments must be made only to the official bank account or other authorized payment account of GoGlobe Consultant.
           Any payment transferred to an employee's personal bank account, mobile wallet, or unauthorized third-party account without official written authorization
           is made at the client's own risk. GoGlobe Consultant shall not be responsible for any loss, misuse, dispute, non-receipt, recovery, reimbursement,
@@ -635,22 +688,22 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <img src={LOGO_FULL} style={{ height: 54 }} alt="GoGlobe Consultant" />
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#14213D' }}>INVOICE</div>
-            <div style={{ fontSize: 11 }}><b>Invoice No:</b> {inv.invoiceNumber}</div>
-            <div style={{ fontSize: 11 }}><b>Date:</b> {fmtDate(inv.date)}</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#14213D' }}>INVOICE</div>
+            <div style={{ fontSize: 13 }}><b>Invoice No:</b> {inv.invoiceNumber}</div>
+            <div style={{ fontSize: 13 }}><b>Date:</b> {fmtDate(inv.date)}</div>
           </div>
         </div>
         <div style={{ height: 5, background: 'linear-gradient(90deg,#1FA463,#1F6E8C,#14213D)', marginBottom: 12 }} />
 
         <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-          <div style={{ flex: 1, background: '#F2F8F5', padding: 10, fontSize: 11.5 }}>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 12, fontSize: 13.5, lineHeight: 1.5 }}>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>BILL TO</div>
             <div>{inv.clientName}</div>
             <div>{inv.destination} Visit Visa Applicant</div>
             {inv.clientCity && <div>{inv.clientCity}</div>}
             <div>{inv.clientPhone}</div>
           </div>
-          <div style={{ flex: 1, background: '#F2F8F5', padding: 10, fontSize: 11.5 }}>
+          <div style={{ flex: 1, background: '#F2F8F5', padding: 12, fontSize: 13.5, lineHeight: 1.5 }}>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>FROM</div>
             <div>GoGlobe Consultant</div>
             <div>Office No. 303, 3rd Floor, Noor Mobile Mall,</div>
@@ -658,18 +711,18 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
           </div>
         </div>
 
-        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>SERVICE DETAILS</div>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6, color: '#14213D' }}>SERVICE DETAILS</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
           <thead><tr><th style={TH}>Description</th><th style={{ ...TH, textAlign: 'right', width: 130 }}>Amount (PKR)</th></tr></thead>
           <tbody><tr><td style={T}>{inv.serviceDescription}</td><td style={{ ...T, textAlign: 'right' }}>{inv.totalAmount.toLocaleString()}</td></tr></tbody>
         </table>
 
-        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PAYMENT SUMMARY</div>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6, color: '#14213D' }}>PAYMENT SUMMARY</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, textAlign: 'center' }}>
           <thead><tr><th style={TH}>Total Consultancy Fee</th><th style={TH}>Amount Received</th><th style={TH}>Outstanding Balance</th></tr></thead>
           <tbody><tr>
             <td style={{ ...T, fontWeight: 700 }}>PKR {inv.totalAmount.toLocaleString()}</td>
-            <td style={{ ...T, fontWeight: 700, color: '#0B6E4F' }}>PKR {(inv.advanceStatus === 'Paid' ? inv.advanceAmount : 0) + (inv.balanceStatus === 'Paid' ? inv.balanceAmount : 0)}</td>
+            <td style={{ ...T, fontWeight: 700, color: '#0B6E4F' }}>PKR {((inv.advanceStatus === 'Paid' ? inv.advanceAmount : 0) + (inv.balanceStatus === 'Paid' ? inv.balanceAmount : 0)).toLocaleString()}</td>
             <td style={{ ...T, fontWeight: 700, color: inv.balanceStatus === 'Paid' && inv.advanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>
               PKR {(inv.totalAmount - ((inv.advanceStatus === 'Paid' ? inv.advanceAmount : 0) + (inv.balanceStatus === 'Paid' ? inv.balanceAmount : 0))).toLocaleString()}
               {inv.advanceStatus === 'Paid' && inv.balanceStatus === 'Paid' ? '' : ' - PENDING'}
@@ -677,27 +730,27 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
           </tr></tbody>
         </table>
 
-        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PAYMENT TERMS</div>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6, color: '#14213D' }}>PAYMENT TERMS</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
           <thead><tr><th style={TH}>Stage</th><th style={TH}>Amount</th><th style={TH}>Due</th><th style={TH}>Status</th></tr></thead>
           <tbody>
             <tr>
               <td style={T}>Advance ({inv.advancePercent}%) - payable against this invoice</td>
-              <td style={T}>PKR {inv.advanceAmount.toLocaleString()}</td>
+              <td style={{ ...T, whiteSpace: 'nowrap' }}>PKR {inv.advanceAmount.toLocaleString()}</td>
               <td style={T}>{inv.advanceStatus === 'Paid' ? fmtDate(inv.advancePaidDate) : 'On invoice'}</td>
               <td style={{ ...T, fontWeight: 700, color: inv.advanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>{inv.advanceStatus === 'Paid' ? 'Received' : 'DUE NOW'}</td>
             </tr>
             <tr>
               <td style={T}>Balance ({100 - inv.advancePercent}%) - payable when prepared file is collected</td>
-              <td style={T}>PKR {inv.balanceAmount.toLocaleString()}</td>
+              <td style={{ ...T, whiteSpace: 'nowrap' }}>PKR {inv.balanceAmount.toLocaleString()}</td>
               <td style={T}>At file completion / before collection</td>
               <td style={{ ...T, fontWeight: 700, color: inv.balanceStatus === 'Paid' ? '#0B6E4F' : '#B5433A' }}>{inv.balanceStatus === 'Paid' ? 'Received' : 'Pending'}</td>
             </tr>
           </tbody>
         </table>
 
-        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>PROFESSIONAL TERMS &amp; CONDITIONS OF SERVICE</div>
-        <ol style={{ fontSize: 10, lineHeight: 1.5, paddingLeft: 16, marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6, color: '#14213D' }}>PROFESSIONAL TERMS &amp; CONDITIONS OF SERVICE</div>
+        <ol style={{ fontSize: 12, lineHeight: 1.55, paddingLeft: 18, marginBottom: 12 }}>
           <li style={{ marginBottom: 5 }}><b>ADVANCE / PAYMENTS – NON-REFUNDABLE.</b> The advance payment received against the total consultancy fee is non-refundable once the case has been started. The remaining balance becomes payable after the client has reviewed and verified the prepared file and must be cleared before file collection / handover. Consultancy and service charges cover professional case assessment, documentation, file preparation, appointment processing, and other services performed by GoGlobe Consultant and are not dependent upon the final visa decision.</li>
           <li style={{ marginBottom: 5 }}><b>VISA DECISION.</b> Visa approval or refusal is solely at the discretion of the relevant embassy, consulate, or visa authority. GoGlobe Consultant does not guarantee visa approval. In case of refusal, any re-application, appeal, or review requested by the client will be treated as a new service with a separately payable fee.</li>
           <li style={{ marginBottom: 5 }}><b>CLIENT DOCUMENT RESPONSIBILITY.</b> The client is responsible for providing complete, accurate, genuine, and verifiable information and documents. GoGlobe Consultant is not responsible for false, forged, altered, or misleading documents provided by the client.</li>
@@ -709,19 +762,19 @@ function InvoiceView({ invoiceId, onClose }: { invoiceId: string; onClose: () =>
           <li style={{ marginBottom: 0 }}><b>AUTHORIZED COMPANY PAYMENT ACCOUNT.</b> All payments must be made only to the official bank account or other authorized payment account of GoGlobe Consultant. Any transfer to an employee's personal account, mobile wallet, representative, agent, or other third party without official written authorization is at the client's own risk.</li>
         </ol>
 
-        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: '#14213D' }}>CLIENT ACKNOWLEDGEMENT</div>
-        <div style={{ fontSize: 10.5, marginBottom: 10 }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6, color: '#14213D' }}>CLIENT ACKNOWLEDGEMENT</div>
+        <div style={{ fontSize: 12.5, marginBottom: 12 }}>
           By signing below, the client confirms that the invoice details, payment terms, and terms &amp; conditions stated in this document have been read and understood.
         </div>
         <div style={{ display: 'flex', gap: 40, marginBottom: 10 }}>
-          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 4, fontSize: 10.5 }}>CLIENT SIGNATURE</div>
-          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 4, fontSize: 10.5 }}>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 5, fontSize: 12.5 }}>CLIENT SIGNATURE</div>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 5, fontSize: 12.5 }}>
             AUTHORIZED SIGNATURE / COMPANY STAMP
             {inv.clientAcknowledged && <div style={{ color: '#0B6E4F', fontWeight: 700, marginTop: 2 }}>Acknowledged in system on {fmtDate(inv.clientAcknowledgedDate)}</div>}
           </div>
         </div>
 
-        <div style={{ background: '#14213D', color: '#fff', padding: '8px 12px', fontSize: 10, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+        <div style={{ background: '#14213D', color: '#fff', padding: '10px 14px', fontSize: 12, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
           <div><b>WhatsApp</b><br />0317-9911228 | 0327-9911228</div>
           <div><b>PTCL</b><br />051-6126833</div>
           <div><b>Email</b><br />info@goglobeconsultants.com</div>
