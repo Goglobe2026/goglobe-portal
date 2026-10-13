@@ -15,6 +15,7 @@ export function Stamp({ text, className = '' }: { text: string; className?: stri
     'on-leave': 'st-contacted', resigned: 'st-lost', terminated: 'st-refused',
     late: 'st-refused', 'on-approved-leave': 'st-contacted',
     registered: 'st-new', 'partially-paid': 'st-contacted', 'fully-paid': 'st-approved',
+    passed: 'st-approved', failed: 'st-refused',
     'documentation-complete': 'st-approved', 'travel-confirmed': 'st-approved', cancelled: 'st-refused',
   };
   const cls = map[key] || 'st-new';

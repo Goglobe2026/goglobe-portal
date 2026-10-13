@@ -5,11 +5,10 @@ import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { Modal, ModalTitle, ModalFoot } from '@/components/ui/Primitives';
-import { overallPaid } from './Cases';
 import { LOGO_FULL } from '@/lib/logo';
 import { printSheet } from '@/lib/printSheet';
 import { rupeesInWords } from '@/lib/moneyWords';
-import { monthLabel, shiftMonth, monthEnd } from '@/lib/finance';
+import { monthLabel, shiftMonth, monthEnd, proRataFor, payrollDueDate, daysBetween, casesClosedBy, collectedFor, dueCaseBonuses, applicantsOf, PAYROLL_DAY } from '@/lib/finance';
 import { exportToCsv } from '@/lib/csv';
 import type { TeamMember, PayrollCategory, PayRun, PayrollLine, PayLineItem, PayAttendance, StaffAdvance, Transaction, AttendanceRecord } from '@/lib/types';
 
@@ -53,7 +52,7 @@ function attendanceFor(t: TeamMember, month: string, attendance: AttendanceRecor
     if (new Date(y, m - 1, d).getDay() === 0) continue;
     const iso = `${month}-${String(d).padStart(2, '0')}`;
     workingDays++;
-    if (iso <= todayStr && iso <= monthEnd(month) && (!t.contractStart || iso >= t.contractStart)) elapsedDays++;
+    if (iso <= todayStr && iso <= monthEnd(month) && (!t.contractStart || iso >= t.contractStart) && (!t.lastWorkingDay || iso <= t.lastWorkingDay)) elapsedDays++;
   }
   const recs = attendance.filter(a => a.staffId === t.id && a.date.slice(0, 7) === month);
   const leave = recs.filter(a => a.onApprovedLeave).length;
@@ -88,10 +87,12 @@ export function Payroll() {
 // PAY RUN
 // ======================================================================
 function PayRunTab() {
-  const { team, setTeam, cases, transactions, setTransactions, adjustments, attendance, payrollCategories, payRuns, setPayRuns, staffAdvances, setStaffAdvances, logActivity } = useAppData();
+  const { team, setTeam, cases, setCases, transactions, setTransactions, adjustments, attendance, payrollCategories, payRuns, setPayRuns, staffAdvances, setStaffAdvances, logActivity } = useAppData();
   const toast = useToast();
   const todayStr = today();
   const [month, setMonth] = useState(shiftMonth(todayStr.slice(0, 7), -1));
+  const [payDate, setPayDate] = useState(todayStr);
+  const due = payrollDueDate(month);
   const [editId, setEditId] = useState<string | null>(null);
   const [slipId, setSlipId] = useState<string | null>(null);
   const [bulk, setBulk] = useState(false);
@@ -101,22 +102,44 @@ function PayRunTab() {
 
   function buildLine(t: TeamMember): PayrollLine {
     const cat = (id: string) => cats.find(c => c.id === id);
-    const items: PayLineItem[] = [];
-    const push = (categoryId: string, label: string, kind: 'Earning' | 'Deduction', amount: number, posting: string) => {
-      const a = Math.round(amount); if (a > 0) items.push({ categoryId, label, kind, amount: a, posting, auto: true });
+    const items: PayLineItem[] = []; const notes: string[] = [];
+    const push = (categoryId: string, label: string, kind: 'Earning' | 'Deduction', amount: number, posting: string, extra: Partial<PayLineItem> = {}) => {
+      const a = Math.round(amount); if (a > 0) items.push({ categoryId, label, kind, amount: a, posting, auto: true, ...extra });
     };
-    push('cat_basic', cat('cat_basic')?.name || 'Basic salary', 'Earning', t.salary, 'Salary');
-    push('cat_allow', cat('cat_allow')?.name || 'Monthly allowance', 'Earning', t.monthlyAllowance || 0, 'Salary');
-    (t.payItems || []).forEach(p => { const c = cat(p.categoryId); if (c && c.active) push(c.id, c.name, c.kind, p.amount, c.posting); });
 
-    const mine = cases.filter(c => c.consultant === t.id);
-    const won = mine.filter(c => c.status === 'Approved').length;
-    const revenue = mine.reduce((s, c) => s + overallPaid(c), 0);
-    const paidTx = (cat2: string) => transactions.filter(x => x.type === 'Expense' && x.category === cat2 && x.party === t.name).reduce((s, x) => s + x.amount, 0);
-    const closedInMonth = mine.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === month).length;
-    const quotaMet = t.department !== 'Sales' || closedInMonth >= (t.monthlyQuota || 5);
-    push('cat_comm', 'Commission', 'Earning', quotaMet ? Math.max(0, Math.round(revenue * (t.commissionPercent / 100)) - paidTx('Commission')) : 0, 'Commission');
-    push('cat_bonus', 'Closed-case bonus', 'Earning', Math.max(0, won * t.bonusPerClose - paidTx('Bonus')), 'Bonus');
+    // Joining / leaving: pay only for the days worked in this month.
+    const pr = proRataFor(t, month);
+    const prorated = pr.payableDays < pr.workingDays;
+    const scaled = (full: number) => prorated && pr.workingDays ? Math.round(full * pr.payableDays / pr.workingDays) : Math.round(full);
+    const pushFixed = (categoryId: string, label: string, full: number, posting: string) => push(categoryId, label, 'Earning', scaled(full), posting, { fullAmount: Math.round(full) });
+    pushFixed('cat_basic', cat('cat_basic')?.name || 'Basic salary', t.salary, 'Salary');
+    pushFixed('cat_allow', cat('cat_allow')?.name || 'Monthly allowance', t.monthlyAllowance || 0, 'Salary');
+    (t.payItems || []).forEach(p => {
+      const c = cat(p.categoryId); if (!c || !c.active) return;
+      if (c.kind === 'Earning' && c.mode === 'Fixed') pushFixed(c.id, c.name, p.amount, c.posting);
+      else push(c.id, c.name, c.kind, p.amount, c.posting);
+    });
+    if (prorated) notes.push(`Paid for ${pr.payableDays} of ${pr.workingDays} working days${pr.note ? ' (' + pr.note + ')' : ''}. Salary and fixed allowances are pro-rated; change the days below if needed.`);
+
+    // Performance: whatever this employee closed (by closing date) and collected in the month.
+    const closedCases = casesClosedBy(cases, t.id, month);
+    const collected = collectedFor(cases, transactions, t.id, month);
+    const quota = t.monthlyQuota || 5;
+    const quotaMet = t.department !== 'Sales' || closedCases.length >= quota;
+    if (t.commissionPercent > 0 && collected > 0) {
+      if (quotaMet) push('cat_comm', 'Commission', 'Earning', collected * (t.commissionPercent / 100), 'Commission', { note: `${t.commissionPercent}% of ${money(collected)} collected in ${monthLabel(month)} on cases closed by ${t.name}` });
+      else notes.push(`Commission of ${money(Math.round(collected * t.commissionPercent / 100))} not added: only ${closedCases.length} of the ${quota} monthly closings reached. Add it manually if you want to pay it.`);
+    }
+    if (t.bonusPerClose > 0 && closedCases.length) {
+      const fam = closedCases.reduce((s, c) => s + applicantsOf(c), 0);
+      push('cat_bonus', 'Closed-case bonus', 'Earning', closedCases.length * t.bonusPerClose, 'Bonus', { note: `${closedCases.length} case${closedCases.length === 1 ? '' : 's'} closed in ${monthLabel(month)} × ${money(t.bonusPerClose)}${fam > closedCases.length ? ` (${fam} applicants)` : ''}` });
+    }
+    // Bonuses attached to individual cases, each as its own line.
+    dueCaseBonuses(cases, t.id, month).forEach(({ caseRec, bonus }) => {
+      const where = `${caseRec.name}${(caseRec.familyMembers?.length || 0) > 0 ? ` (family of ${applicantsOf(caseRec)})` : ''} · ${caseRec.referenceCode || ''}`;
+      push('cat_bonus', 'Case bonus', 'Earning', bonus.amount, 'Bonus', { refs: [bonus.id], note: `${where}${bonus.note ? ' · ' + bonus.note : ''}${bonus.month < month ? ` · from ${monthLabel(bonus.month)}` : ''}` });
+    });
+
     const adj = adjustments.filter(a => a.staffId === t.id && a.date.slice(0, 7) === month);
     push('cat_appr', 'Appreciation', 'Earning', adj.filter(a => a.type === 'Bonus').reduce((s, a) => s + a.amount, 0), 'Appreciation');
     // Absence fines are covered by the attendance suggestion, so they are left out here.
@@ -128,16 +151,22 @@ function PayRunTab() {
     return {
       id: genId('pl'), staffId: t.id, staffName: t.name, role: t.role, employeeId: t.employeeId, department: t.department,
       bankName: t.bankName || '', accountNo: t.accountNo || '', items, attendance: attendanceFor(t, month, attendance, todayStr),
-      slipNumber: '', paid: false, paidDate: '',
+      proRata: pr, notes, slipNumber: '', paid: false, paidDate: '',
     };
   }
 
   function createRun() {
     if (run) return;
     if (otherOpen) { toast(`Finish ${monthLabel(otherOpen.month)} payroll first (${otherOpen.status}) — it has not been fully paid yet.`); return; }
-    const staff = team.filter(t => t.employmentStatus !== 'Resigned' && t.employmentStatus !== 'Terminated');
-    if (!staff.length) { toast('No active staff to pay'); return; }
-    const r: PayRun = { id: genId('run'), month, status: 'Draft', createdDate: todayStr, approvedDate: '', paidDate: '', lines: staff.map(buildLine) };
+    // Everyone who worked any part of the month: not-yet-joined staff are left out,
+    // and people who left are included only if their last working day falls in or after this month.
+    const staff = team.filter(t => {
+      if (proRataFor(t, month).payableDays <= 0) return false;
+      if (t.employmentStatus === 'Resigned' || t.employmentStatus === 'Terminated') return !!t.lastWorkingDay && t.lastWorkingDay >= `${month}-01`;
+      return true;
+    });
+    if (!staff.length) { toast('No staff worked in this month'); return; }
+    const r: PayRun = { id: genId('run'), month, dueDate: due, status: 'Draft', createdDate: todayStr, approvedDate: '', paidDate: '', lines: staff.map(buildLine) };
     setPayRuns(prev => [...prev, r]);
     logActivity(`Pay run created — ${monthLabel(month)}, ${r.lines.length} staff`);
     toast(`Pay run created for ${monthLabel(month)}`);
@@ -159,6 +188,7 @@ function PayRunTab() {
     if (!run || run.status === 'Draft') return;
     const lines = run.lines.filter(l => lineIds.includes(l.id) && !l.paid);
     if (!lines.length) return;
+    if (!payDate || payDate > todayStr) { toast('Choose the date the salaries were paid (today or earlier)'); return; }
     const newTx: Transaction[] = []; const recov: Record<string, number> = {};
     lines.forEach(l => {
       const by: Record<string, number> = { Salary: 0, Commission: 0, Bonus: 0, Appreciation: 0 };
@@ -167,7 +197,7 @@ function PayRunTab() {
       // Deductions come out of the salary part first, then the other heads.
       for (const k of ['Salary', 'Commission', 'Bonus', 'Appreciation']) { const take = Math.min(by[k], ded); by[k] -= take; ded -= take; }
       Object.entries(by).forEach(([category, amount]) => {
-        if (amount > 0) newTx.push({ id: genId('tx'), date: todayStr, type: 'Expense', category, party: l.staffName, amount, note: `Payroll ${monthLabel(run.month)} — ${l.slipNumber}` });
+        if (amount > 0) newTx.push({ id: genId('tx'), date: payDate, type: 'Expense', category, party: l.staffName, amount, note: `Payroll ${monthLabel(run.month)} — ${l.slipNumber}` });
       });
       const rec = l.items.find(i => i.categoryId === 'cat_advance'); if (rec) recov[l.staffId] = rec.amount;
     });
@@ -177,18 +207,32 @@ function PayRunTab() {
       const take = Math.min(left, a.amount - a.recovered); if (take <= 0) return a;
       recov[a.staffId] = left - take; return { ...a, recovered: a.recovered + take };
     }));
-    setTeam(prev => prev.map(t => lines.some(l => l.staffId === t.id) ? { ...t, lastSalaryPaid: todayStr } : t));
+    // Case bonuses that went out in this payment are now marked paid on their cases.
+    const paidBonusIds = new Set(lines.flatMap(l => l.items.flatMap(i => i.refs || [])));
+    if (paidBonusIds.size) setCases(prev => prev.map(c => c.caseBonuses?.some(b => paidBonusIds.has(b.id))
+      ? { ...c, caseBonuses: c.caseBonuses.map(b => paidBonusIds.has(b.id) ? { ...b, paid: true, paidDate: payDate, paidRunMonth: run.month } : b) } : c));
+    setTeam(prev => prev.map(t => lines.some(l => l.staffId === t.id) ? { ...t, lastSalaryPaid: payDate } : t));
     setPayRuns(prev => prev.map(r => {
       if (r.id !== run.id) return r;
-      const ls = r.lines.map(l => lineIds.includes(l.id) && !l.paid ? { ...l, paid: true, paidDate: todayStr } : l);
+      const ls = r.lines.map(l => lineIds.includes(l.id) && !l.paid ? { ...l, paid: true, paidDate: payDate } : l);
       const all = ls.every(l => l.paid);
-      return { ...r, lines: ls, status: all ? 'Paid' : r.status, paidDate: all ? todayStr : r.paidDate };
+      return { ...r, lines: ls, status: all ? 'Paid' : r.status, paidDate: all ? payDate : r.paidDate };
     }));
     const total = lines.reduce((s, l) => s + lineNet(l), 0);
     logActivity(`Payroll paid — ${lines.length} staff, ${money(total)} (${monthLabel(run.month)})`);
     toast(`Paid ${lines.length} staff — ${money(total)} recorded in Accounts`);
   }
 
+  const dueInfo = (() => {
+    if (run?.status === 'Paid' && run.paidDate) {
+      const late = daysBetween(due, run.paidDate);
+      return late <= 0 ? { text: `Paid ${fmtDate(run.paidDate)} — on time`, color: '#0B6E4F' } : { text: `Paid ${fmtDate(run.paidDate)} — ${late} day${late === 1 ? '' : 's'} after payday`, color: '#8a5a12' };
+    }
+    const d = daysBetween(todayStr, due);
+    if (d > 0) return { text: `Payday in ${d} day${d === 1 ? '' : 's'}`, color: '#1F6E8C' };
+    if (d === 0) return { text: 'Payday is today', color: '#8a5a12' };
+    return { text: `Overdue by ${-d} day${-d === 1 ? '' : 's'}`, color: '#B5433A' };
+  })();
   const T = run ? runTotals(run) : null;
   const statusColor = run?.status === 'Paid' ? '#0B6E4F' : run?.status === 'Approved' ? '#1F6E8C' : '#8a5a12';
   const btn: CSSProperties = { fontSize: 15, padding: '10px 18px' };
@@ -206,14 +250,23 @@ function PayRunTab() {
           {run?.status === 'Draft' && <><button className="btn" style={btn} onClick={deleteDraft}>Delete draft</button><button className="btn btn-primary" style={btn} onClick={approve}>Approve payroll</button></>}
           {run && run.status !== 'Draft' && <>
             <button className="btn" style={btn} onClick={() => setBulk(true)}>Print all payslips</button>
+            {run.status === 'Approved' && <label className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 700, color: '#3A4A68' }}>Paid on
+              <input type="date" value={payDate} max={todayStr} onChange={e => setPayDate(e.target.value)} style={{ ...inputStyle, width: 160, padding: '8px 10px' }} /></label>}
             {run.status === 'Approved' && <button className="btn btn-primary" style={btn} onClick={() => pay(run.lines.map(l => l.id))}>Pay all staff</button>}
           </>}
         </div>
       </div>
 
+      <div className="card flex items-center justify-between flex-wrap gap-2 mb-4" style={{ background: '#F7F9FA', padding: '12px 16px' }}>
+        <div style={{ fontSize: 14.5, lineHeight: 1.55, color: '#3A4A68' }}>
+          <b>Payroll day is the {PAYROLL_DAY}th of every month.</b> {monthLabel(month)} salaries are paid on <b>{fmtDate(due)}</b>. Staff who joined or left during the month are paid only for the days they worked.
+        </div>
+        <span style={{ padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700, color: dueInfo.color, background: '#fff', border: `1px solid ${dueInfo.color}`, whiteSpace: 'nowrap' }}>{dueInfo.text}</span>
+      </div>
+
       {!run && (
         <div className="card" style={{ fontSize: 15.5, lineHeight: 1.7 }}>
-          <b>No pay run for {monthLabel(month)} yet.</b> Creating one calculates every staff member automatically: basic salary, allowances and any recurring items from their Pay Profile, plus commission, bonus, appreciation, fines and advance recovery. You then review, add anything extra such as overtime, approve, and pay.
+          <b>No pay run for {monthLabel(month)} yet.</b> Creating one calculates every staff member automatically: basic salary and allowances (pro-rated for joining or leaving mid-month), recurring items from their Pay Profile, commission on what they collected, closed-case and per-case bonuses, appreciation, fines and advance recovery. You then review, add anything extra such as overtime, approve, and pay.
           {otherOpen && <div style={{ color: '#B5433A', marginTop: 8 }}>{monthLabel(otherOpen.month)} payroll is still {otherOpen.status.toLowerCase()} — finish paying it before starting another month.</div>}
         </div>
       )}
@@ -232,6 +285,7 @@ function PayRunTab() {
                 {run.lines.map(l => (
                   <tr key={l.id}>
                     <td style={td}><b>{l.staffName}</b><div style={{ fontSize: 13, color: '#5B6270' }}>{l.role} · {l.employeeId}</div>
+                      {l.proRata && l.proRata.payableDays < l.proRata.workingDays && <div style={{ fontSize: 12.5, color: '#1F6E8C', fontWeight: 700 }}>Paid for {l.proRata.payableDays} of {l.proRata.workingDays} days{l.proRata.note ? ` · ${l.proRata.note}` : ''}</div>}
                       {run.status === 'Draft' && l.attendance.absent > 0 && <div style={{ fontSize: 12.5, color: '#8a5a12' }}>{l.attendance.absent} day{l.attendance.absent === 1 ? '' : 's'} without attendance</div>}</td>
                     <td style={{ ...td, ...R }}>{money(lineGross(l))}</td>
                     <td style={{ ...td, ...R, color: lineDed(l) ? '#B5433A' : undefined }}>{lineDed(l) ? '− ' + money(lineDed(l)) : '—'}</td>
@@ -279,6 +333,14 @@ function LineEditor({ run, lineId, cats, onClose }: { run: PayRun; lineId: strin
   const ded = items.filter(i => i.kind === 'Deduction').reduce((s, i) => s + i.amount, 0);
   const a = line.attendance;
   const usable = cats.filter(c => c.active && !c.builtin || c.id === 'cat_absence');
+  const pr = line.proRata;
+  const [days, setDays] = useState(pr ? pr.payableDays : 0);
+  function changeDays(v: number) {
+    if (!pr) return;
+    const d = Math.max(0, Math.min(pr.workingDays, Math.round(v) || 0));
+    setDays(d);
+    setItems(prev => prev.map(i => i.fullAmount !== undefined ? { ...i, amount: Math.round(i.fullAmount * d / pr.workingDays) } : i));
+  }
 
   function setAmount(idx: number, v: number) { setItems(prev => prev.map((i, k) => k === idx ? { ...i, amount: Math.max(0, Math.round(v) || 0) } : i)); }
   function addItem() {
@@ -293,7 +355,7 @@ function LineEditor({ run, lineId, cats, onClose }: { run: PayRun; lineId: strin
     setItems(prev => [...prev.filter(i => i.categoryId !== 'cat_absence'), { categoryId: 'cat_absence', label: c?.name || 'Absence deduction', kind: 'Deduction', amount: a.suggestedDeduction, posting: 'Salary', auto: false }]);
   }
   function save() {
-    setPayRuns(prev => prev.map(r => r.id !== run.id ? r : { ...r, lines: r.lines.map(l => l.id === lineId ? { ...l, items: items.filter(i => i.amount > 0) } : l) }));
+    setPayRuns(prev => prev.map(r => r.id !== run.id ? r : { ...r, lines: r.lines.map(l => l.id === lineId ? { ...l, items: items.filter(i => i.amount > 0), proRata: pr ? { ...pr, payableDays: days } : l.proRata } : l) }));
     logActivity(`Pay run edited — ${line.staffName}, ${monthLabel(run.month)}`);
     onClose();
   }
@@ -306,12 +368,25 @@ function LineEditor({ run, lineId, cats, onClose }: { run: PayRun; lineId: strin
         {a.absent > 0 && <div>Suggested deduction for those days: <b>{money(a.suggestedDeduction)}</b> <button className="btn btn-sm" style={{ marginLeft: 8, fontSize: 13.5 }} onClick={applySuggested}>Apply to this pay</button>
           <div style={{ fontSize: 13, color: '#5B6270' }}>Nothing is deducted unless you apply it — check the attendance records first.</div></div>}
       </div>
+      {pr && (
+        <div className="card" style={{ background: days < pr.workingDays ? '#EAF3F8' : '#F7F9FA', marginBottom: 12, fontSize: 14.5, lineHeight: 1.6 }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <b>Days paid this month:</b>
+            <input type="number" min={0} max={pr.workingDays} value={days} onChange={e => changeDays(Number(e.target.value))} style={{ ...inputStyle, width: 80, padding: '6px 8px' }} />
+            <span>of {pr.workingDays} working days (Mon–Sat)</span>
+            {days !== pr.workingDays && <button className="btn btn-sm" onClick={() => changeDays(pr.workingDays)}>Full month</button>}
+            {days !== pr.payableDays && <button className="btn btn-sm" onClick={() => changeDays(pr.payableDays)}>Reset to {pr.payableDays}</button>}
+          </div>
+          <div style={{ fontSize: 13, color: '#5B6270' }}>{pr.note ? pr.note + '. ' : ''}Basic salary and fixed allowances are worked out as amount × days paid ÷ {pr.workingDays}. Use this for a mid-month joiner or leaver, or for unpaid leave.</div>
+        </div>
+      )}
+      {(line.notes || []).map((n, k) => <div key={k} className="card" style={{ background: '#FBF0DD', marginBottom: 10, fontSize: 14, lineHeight: 1.55 }}>{n}</div>)}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
         <thead><tr><th style={th}>Item</th><th style={th}>Type</th><th style={{ ...th, ...R, width: 170 }}>Amount (PKR)</th><th style={th}></th></tr></thead>
         <tbody>
           {items.map((i, k) => (
             <tr key={k}>
-              <td style={td}>{i.label}{i.auto && <span style={{ fontSize: 12, color: '#5B6270' }}> · automatic</span>}</td>
+              <td style={td}>{i.label}{i.auto && <span style={{ fontSize: 12, color: '#5B6270' }}> · automatic</span>}{i.note && <div style={{ fontSize: 12.5, color: '#5B6270' }}>{i.note}</div>}</td>
               <td style={{ ...td, color: i.kind === 'Earning' ? '#0B6E4F' : '#B5433A' }}>{i.kind}</td>
               <td style={td}><input type="number" value={i.amount} onChange={e => setAmount(k, Number(e.target.value))} style={{ ...inputStyle, textAlign: 'right' }} /></td>
               <td style={td}><button className="btn btn-sm btn-ghost btn-danger" onClick={() => setItems(prev => prev.filter((_, j) => j !== k))}>Remove</button></td>
@@ -351,7 +426,7 @@ function PayslipSheet({ run, line }: { run: PayRun; line: PayrollLine }) {
     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
       <thead><tr><th style={{ ...head, textAlign: 'left' }}>Description</th><th style={{ ...head, textAlign: 'right', width: 190 }}>Amount (PKR)</th></tr></thead>
       <tbody>
-        {rows.map((i, k) => <tr key={k}><td style={cell}>{i.label}</td><td style={{ ...cell, textAlign: 'right', color: neg ? '#B5433A' : undefined }}>{neg ? '− ' : ''}{i.amount.toLocaleString()}</td></tr>)}
+        {rows.map((i, k) => <tr key={k}><td style={cell}>{i.label}{i.fullAmount !== undefined && line.proRata && line.proRata.payableDays < line.proRata.workingDays ? ` (${line.proRata.payableDays}/${line.proRata.workingDays} days)` : ''}{i.note && <span style={{ fontSize: 11.5, color: '#666' }}> — {i.note}</span>}</td><td style={{ ...cell, textAlign: 'right', color: neg ? '#B5433A' : undefined }}>{neg ? '− ' : ''}{i.amount.toLocaleString()}</td></tr>)}
         <tr><td style={{ ...cell, fontWeight: 700, background: '#F7F9FA' }}>{label}</td><td style={{ ...cell, textAlign: 'right', fontWeight: 700, background: '#F7F9FA' }}>{neg ? '− ' : ''}{total.toLocaleString()}</td></tr>
       </tbody>
     </table>
@@ -373,11 +448,12 @@ function PayslipSheet({ run, line }: { run: PayRun; line: PayrollLine }) {
           <div style={{ fontWeight: 700, fontSize: 17 }}>{line.staffName}</div>
           <div>{line.role}</div>
           <div>ID: {line.employeeId} · {line.department}</div>
+          {line.proRata && <div>Days paid: <b>{line.proRata.payableDays} of {line.proRata.workingDays}</b>{line.proRata.payableDays < line.proRata.workingDays && line.proRata.note ? ` · ${line.proRata.note}` : ''}</div>}
         </div>
         <div style={{ flex: 1, background: '#F2F8F5', padding: 10, fontSize: 14.5, lineHeight: 1.5 }}>
           <div style={{ fontWeight: 700, color: NAVY, marginBottom: 2 }}>PAYMENT</div>
           <div>Status: <b style={{ color: line.paid ? '#0B6E4F' : '#B5433A' }}>{line.paid ? 'PAID' : 'NOT PAID YET'}</b></div>
-          <div>{line.paid ? `Paid on ${fmtDate(line.paidDate)}` : 'Payment date to be recorded'}</div>
+          <div>{line.paid ? `Paid on ${fmtDate(line.paidDate)}` : `Payroll day: ${fmtDate(run.dueDate || payrollDueDate(run.month))}`}</div>
           {(line.bankName || line.accountNo) && <div>{line.bankName} {line.accountNo}</div>}
         </div>
       </div>

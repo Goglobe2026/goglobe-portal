@@ -90,6 +90,8 @@ write('appointments', appointments);
 write('transactions', transactions);
 write('bankaccounts', bankaccounts);
 write('campaigns', []);
+write('qcchecks', []);
+write('messages', []);
 write('attendance', []);
 write('adjustments', []);
 write('journalvouchers', []);

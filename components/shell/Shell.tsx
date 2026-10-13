@@ -3,7 +3,10 @@ import Image from 'next/image';
 import { useAppData } from '@/lib/AppDataContext';
 import { useToast } from '@/components/ui/Toast';
 import { LOGO_ICON } from '@/lib/logo';
-import { NAV_GROUPS, findGroupForTab } from '@/lib/navGroups';
+import { useEffect, useState } from 'react';
+import { sidebarSections } from '@/lib/navGroups';
+import { myMessageId, unreadFor } from '@/lib/messages';
+import { TILE_ICONS, DEFAULT_ICON } from './GroupDashboard';
 
 const TITLES: Record<string, [string, string]> = {
   hub: ['GoGlobe Ops', 'Choose a module to get started'],
@@ -32,6 +35,9 @@ const TITLES: Record<string, [string, string]> = {
   closing: ['Monthly Closing', 'Month-end cash position, collections received, pending balances and the balance carried forward'],
   reports: ['Reports & Finance', 'Weekly comparison, monthly trend, bank balances, expenses and journal vouchers'],
   pricing: ['Pricing by country', 'Consultation, visa service and appointment fees'],
+  'grp-quality': ['Quality & Team', 'Check files before they go out, and talk to your team privately'],
+  qc: ['Quality Control', 'Check every file before it is submitted — nothing goes out with a missing step'],
+  messages: ['Team Messages', 'Private one-to-one messages — only the two people in a chat can read it'],
   myportal: ['My Portal', 'Your own attendance, cases and earnings'],
 };
 
@@ -43,7 +49,7 @@ export function Shell({
   topAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const { session, setSession, team, leads, requests, clientFeedback, transactions, monthlyClosings } = useAppData();
+  const { session, setSession, team, leads, requests, clientFeedback, transactions, monthlyClosings, messages } = useAppData();
   const toast = useToast();
   const isCeo = session?.type === 'ceo' || (session?.type === 'employee' && !!team.find(t => t.id === session.staffId)?.isAdmin);
   const me = session?.type === 'employee' ? team.find(t => t.id === session.staffId) : null;
@@ -53,18 +59,23 @@ export function Shell({
   const overdueLeads = leads.filter(l => l.nextFollowUp && l.nextFollowUp <= todayStr && !['Converted', 'Lost'].includes(l.stage)).length;
   const pendingRequests = requests.filter(r => r.status === 'Pending').length;
   const urgentFeedback = clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length;
-  // Badges now live on the group tile, since the individual leaf modules
-  // (Leads, HR Department) aren't directly in the sidebar list anymore.
+  // Small red counters on the sidebar links.
   // A gentle nudge: last month had activity but hasn't been closed yet.
   const prevMonthKey = (() => { const [y, m] = todayStr.slice(0, 7).split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
   const closingPending = isCeo && transactions.some(t => t.date.slice(0, 7) === prevMonthKey) && !monthlyClosings.some(c => c.month === prevMonthKey) ? 1 : 0;
-  const GROUP_BADGES: Record<string, number> = {
-    'grp-marketing': overdueLeads,
-    'grp-hr': pendingRequests + urgentFeedback,
-    'grp-finance': closingPending,
+  const ITEM_BADGES: Record<string, number> = {
+    leads: overdueLeads,
+    hr: pendingRequests + urgentFeedback,
+    closing: closingPending,
+    messages: unreadFor(messages, myMessageId(session)),
   };
 
-  const activeGroup = findGroupForTab(currentTab);
+  const sections = sidebarSections();
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => { try { setCollapsed(localStorage.getItem('goglobe-sidebar-collapsed') === '1'); } catch { /* ignore */ } }, []);
+  function toggleSidebar() {
+    setCollapsed(c => { const n = !c; try { localStorage.setItem('goglobe-sidebar-collapsed', n ? '1' : '0'); } catch { /* ignore */ } return n; });
+  }
 
   async function logout() {
     await fetch('/api/logout', { method: 'POST' });
@@ -74,70 +85,80 @@ export function Shell({
   return (
     <div className="flex min-h-screen">
       <aside
-        className="w-[220px] flex-none flex flex-col p-5 sticky top-0 h-screen overflow-y-auto text-[#DCF3E9]"
-        style={{ background: 'linear-gradient(165deg,#14213D 0%,#1B3358 100%)', boxShadow: '0 16px 40px rgba(20,33,61,.16)' }}
+        className="flex-none flex flex-col sticky top-0 h-screen overflow-y-auto overflow-x-hidden text-[#DCF3E9]"
+        style={{
+          width: collapsed ? 64 : 232, padding: collapsed ? '20px 8px' : '20px 14px', transition: 'width .16s ease, padding .16s ease',
+          background: 'linear-gradient(165deg,#14213D 0%,#1B3358 100%)', boxShadow: '0 16px 40px rgba(20,33,61,.16)',
+        }}
       >
-        <button onClick={() => onTabChange('hub')} className="flex items-center gap-2.5 pb-5 px-2 text-left" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-          <img
-            src={LOGO_ICON}
-            alt="GoGlobe Consultants"
-            className="w-8 h-8 rounded-[9px] object-cover bg-white flex-none"
-            style={{ boxShadow: '0 4px 14px rgba(0,0,0,.25)' }}
-          />
-          <div>
-            <div className="font-display font-semibold text-[15px] text-white leading-tight">GoGlobe Ops</div>
-            <div className="text-[10.5px] text-[#9FCBB6] uppercase tracking-wide">Client &amp; Case Portal</div>
-          </div>
-        </button>
+        <div className={`flex items-center pb-4 ${collapsed ? 'flex-col gap-3' : 'gap-2.5 px-1.5 justify-between'}`}>
+          <button onClick={() => onTabChange('hub')} title="All modules" className="flex items-center gap-2.5 text-left min-w-0" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+            <img
+              src={LOGO_ICON}
+              alt="GoGlobe Consultants"
+              className="w-8 h-8 rounded-[9px] object-cover bg-white flex-none"
+              style={{ boxShadow: '0 4px 14px rgba(0,0,0,.25)' }}
+            />
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="font-display font-semibold text-[15px] text-white leading-tight">GoGlobe Ops</div>
+                <div className="text-[10.5px] text-[#9FCBB6] uppercase tracking-wide">Client &amp; Case Portal</div>
+              </div>
+            )}
+          </button>
+          {isCeo && (
+            <button
+              onClick={toggleSidebar} aria-label={collapsed ? 'Expand sidebar' : 'Minimize sidebar'} title={collapsed ? 'Expand sidebar' : 'Minimize sidebar'}
+              className="flex-none w-6 h-6 rounded-full flex items-center justify-center text-[11px]"
+              style={{ background: 'rgba(255,255,255,.12)', color: '#fff', border: '1px solid rgba(255,255,255,.18)', cursor: 'pointer', padding: 0 }}
+            >{collapsed ? '➤' : '◀'}</button>
+          )}
+        </div>
 
-        <nav className="flex flex-col gap-0.5 mt-1.5">
-          {isCeo
-            ? NAV_GROUPS.map(g => {
-                const active = activeGroup ? activeGroup.id === g.id : currentTab === g.id;
-                return (
-                  <button
-                    key={g.id}
-                    onClick={() => onTabChange(g.id)}
-                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-[13.5px] font-medium transition-all"
-                    style={{
-                      color: active ? '#fff' : '#BFE6D3',
-                      background: active ? 'rgba(255,255,255,.14)' : 'transparent',
-                      boxShadow: active ? 'inset 0 0 0 1px rgba(255,255,255,.12)' : 'none',
-                    }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--gold)] flex-none" />
-                    <span className="flex-1">{g.label}</span>
-                    {GROUP_BADGES[g.id] > 0 && (
-                      <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full flex-none" style={{ background: 'var(--red)', color: '#fff' }}>
-                        {GROUP_BADGES[g.id]}
-                      </span>
+        <nav className="flex flex-col gap-0.5">
+          {isCeo ? (
+            <>
+              <SideLink id="dashboard" label="Dashboard" active={currentTab === 'dashboard'} collapsed={collapsed} onClick={() => onTabChange('dashboard')} />
+              {sections.map(sec => (
+                <div key={sec.id}>
+                  {collapsed
+                    ? <div className="mx-2 my-2.5" style={{ borderTop: '1px solid rgba(255,255,255,.12)' }} />
+                    : (
+                      <button
+                        onClick={() => onTabChange(sec.groupId)} title={`Open the ${sec.label} overview`}
+                        className="w-full text-left px-2.5 pt-4 pb-1 text-[10.5px] font-bold uppercase tracking-[.08em] hover:text-white"
+                        style={{ color: currentTab === sec.groupId ? '#fff' : 'rgba(255,255,255,.45)', background: 'none', border: 'none', cursor: 'pointer' }}
+                      >{sec.label}</button>
                     )}
-                  </button>
-                );
-              })
-            : (
-                <button className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-[13.5px] font-medium bg-white/15 text-white">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--gold)] flex-none" />
-                  My Portal
-                </button>
-              )}
+                  {sec.items.map(it => (
+                    <SideLink key={it.id} id={it.id} label={it.label} badge={ITEM_BADGES[it.id]} active={currentTab === it.id} collapsed={collapsed} onClick={() => onTabChange(it.id)} />
+                  ))}
+                </div>
+              ))}
+            </>
+          ) : (
+            <SideLink id="myportal" label="My Portal" active collapsed={collapsed} badge={unreadFor(messages, myMessageId(session))} onClick={() => {}} />
+          )}
           <button
             onClick={logout}
-            className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-[13.5px] font-medium mt-2.5"
-            style={{ color: '#F5C7C0' }}
+            title="Log out"
+            className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-[13.5px] font-medium mt-3"
+            style={{ color: '#F5C7C0', justifyContent: collapsed ? 'center' : undefined }}
           >
             <span className="w-1.5 h-1.5 rounded-full flex-none" style={{ background: '#F5C7C0' }} />
-            Log out
+            {!collapsed && 'Log out'}
           </button>
         </nav>
 
-        <div className="mt-auto pt-3.5 border-t border-white/10 text-[11.5px] text-[#8FBFA9]">
-          {session?.type === 'ceo'
-            ? <>Signed in as <b className="text-white">CEO / Owner</b><br />Full access to every module.</>
-            : isCeo
-            ? <>Signed in as <b className="text-white">{me?.name}</b><br />Full admin access, granted by the owner.</>
-            : <>Signed in as <b className="text-white">{me?.name}</b><br />You can only see your own work.</>}
-        </div>
+        {!collapsed && (
+          <div className="mt-auto pt-3.5 border-t border-white/10 text-[11.5px] text-[#8FBFA9]">
+            {session?.type === 'ceo'
+              ? <>Signed in as <b className="text-white">Head Manager</b><br />Full access to every module.</>
+              : isCeo
+              ? <>Signed in as <b className="text-white">{me?.name}</b><br />Full admin access, granted by the Head Manager.</>
+              : <>Signed in as <b className="text-white">{me?.name}</b><br />You can only see your own work.</>}
+          </div>
+        )}
       </aside>
 
       <div className="flex-1 min-w-0">
@@ -154,5 +175,31 @@ export function Shell({
         <div className="px-7 py-6 pb-16 max-w-[1280px]">{children}</div>
       </div>
     </div>
+  );
+}
+
+
+function SideLink({ id, label, active, collapsed, badge, onClick }: { id: string; label: string; active: boolean; collapsed: boolean; badge?: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick} title={collapsed ? label : undefined}
+      className="relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-[9px] text-left text-[13.5px] font-medium transition-all w-full"
+      style={{
+        color: active ? '#fff' : '#BFE6D3',
+        background: active ? 'rgba(255,255,255,.14)' : 'transparent',
+        boxShadow: active ? 'inset 0 0 0 1px rgba(255,255,255,.12)' : 'none',
+        justifyContent: collapsed ? 'center' : undefined,
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={active ? '#F2C66D' : '#C9922E'} strokeWidth="1.8" className="flex-none">
+        {TILE_ICONS[id] || DEFAULT_ICON}
+      </svg>
+      {!collapsed && <span className="flex-1 truncate">{label}</span>}
+      {!!badge && badge > 0 && (
+        collapsed
+          ? <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--red)' }} />
+          : <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-full flex-none" style={{ background: 'var(--red)', color: '#fff' }}>{badge}</span>
+      )}
+    </button>
   );
 }

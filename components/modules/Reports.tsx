@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today } from '@/lib/constants';
 import { overallCharge, overallPaid } from './Cases';
+import { closerOf, closedOn } from '@/lib/finance';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -64,7 +65,7 @@ export function Reports() {
   const weeklyData = sales.map(t => ({
     name: t.name,
     leads: leads.filter(l => l.assignedTo === t.id && l.createdAt >= sow).length,
-    closed: cases.filter(c => c.consultant === t.id && c.status === 'Approved' && c.createdAt >= sow).length,
+    closed: cases.filter(c => closerOf(c) === t.id && closedOn(c) >= sow).length,
   }));
 
   const months: Record<string, { Income: number; Expense: number }> = {};
@@ -81,7 +82,7 @@ export function Reports() {
   function savePin() {
     if (!pinInput.trim()) { toast('Enter a PIN'); return; }
     setCeoPin(pinInput);
-    toast('CEO PIN updated');
+    toast('Head Manager PIN updated');
   }
   function saveGoal() {
     const n = Number(goalInput);
@@ -312,9 +313,9 @@ export function Reports() {
 
       <div className="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
         <div>
-          <SectionHead title="Owner PIN" />
+          <SectionHead title="Head Manager PIN" />
           <div className="card">
-            <Field label="Change CEO login PIN"><input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} maxLength={8} /></Field>
+            <Field label="Change Head Manager login PIN"><input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} maxLength={8} /></Field>
             <button className="btn btn-sm" onClick={savePin}>Save new PIN</button>
           </div>
         </div>

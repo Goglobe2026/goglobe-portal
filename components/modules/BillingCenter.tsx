@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, today } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
-import { caseCharge, casePaid, caseForTx, CLIENT_PAYMENT_CATEGORIES, daysBetween } from '@/lib/finance';
+import { caseCharge, casePaid, caseForTx, CLIENT_PAYMENT_CATEGORIES, daysBetween, closedOn } from '@/lib/finance';
 import { ARIAL, NAVY, th, td, R, inputStyle, waLink } from '@/components/ui/docStyles';
 
 type State = 'Overdue' | 'Due this week' | 'Promised' | 'No date set';
@@ -26,7 +26,7 @@ export function BillingCenter() {
     const outstanding = caseCharge(c) - casePaid(c);
     const exp = c.expectedPaymentDate || '';
     const state: State = exp ? (exp < todayStr ? 'Overdue' : daysBetween(todayStr, exp) <= 7 ? 'Due this week' : 'Promised') : 'No date set';
-    return { c, outstanding, exp, state, age: Math.max(0, daysBetween(c.createdAt, todayStr)), last: lastPay(c.id) };
+    return { c, outstanding, exp, state, age: Math.max(0, daysBetween(closedOn(c), todayStr)), last: lastPay(c.id) };
   });
   const open = all.filter(r => showClosed || (r.c.status !== 'Refused' && r.c.status !== 'Closed'));
   const sum = (rows: typeof open) => rows.reduce((s, r) => s + r.outstanding, 0);

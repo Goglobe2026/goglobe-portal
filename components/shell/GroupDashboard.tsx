@@ -2,12 +2,17 @@
 import { useAppData } from '@/lib/AppDataContext';
 import { money, today } from '@/lib/constants';
 import type { NavGroup } from '@/lib/navGroups';
+import { shiftMonth, monthLabel, payrollDueDate, daysBetween } from '@/lib/finance';
 import type { ReactElement } from 'react';
 
 // Same gold-on-navy icon treatment as the top-level hub, so every level of
 // navigation feels like one system rather than a different theme each time
 // you go one level deeper.
-const TILE_ICONS: Record<string, ReactElement> = {
+export const TILE_ICONS: Record<string, ReactElement> = {
+  qc: <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3zM9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
+  messages: <path d="M4 5h16v11H9l-5 4V5zM8 10h8M8 13h5" strokeLinecap="round" strokeLinejoin="round" />,
+  grouptours: <path d="M21 16v-2l-8-5V4.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V18l-2.5 2v1.5l4-1 4 1V20l-2.5-2v-4.5l8 2.5z" strokeLinecap="round" strokeLinejoin="round" />,
+  dashboard: <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />,
   leads: <path d="M3 11v2a1 1 0 001 1h2l4 4V6L6 10H4a1 1 0 00-1 1zM14 8a4 4 0 010 8" strokeLinecap="round" strokeLinejoin="round" />,
   campaigns: <path d="M11 19l-2-9 9-4-4 9-9 2 6 2z M4 4l2 2M4 13h2M13 4v2" strokeLinecap="round" strokeLinejoin="round" />,
   testimonials: <path d="M7 15h2l2-4V7H5v4h3l-1 4zm8 0h2l2-4V7h-6v4h3l-1 4z" strokeLinecap="round" strokeLinejoin="round" />,
@@ -28,7 +33,7 @@ const TILE_ICONS: Record<string, ReactElement> = {
   closing: <path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1zM9 14l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
   pricing: <path d="M9 5H5a1 1 0 00-1 1v4l9 9 5-5-9-9zM7 8h.01" strokeLinecap="round" strokeLinejoin="round" />,
 };
-const DEFAULT_ICON = <path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" strokeLinejoin="round" />;
+export const DEFAULT_ICON = <path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" strokeLinejoin="round" />;
 
 function useGroupStats(groupId: string) {
   const { leads, cases, appointments, team, requests, transactions, bankAccounts, loans, monthlyClosings, payRuns } = useAppData();
@@ -59,11 +64,14 @@ function useGroupStats(groupId: string) {
       { label: 'Total staff', value: String(team.filter(t => !t.employmentStatus || t.employmentStatus === 'Active').length) },
       { label: 'Pending requests', value: String(requests.filter(r => r.status === 'Pending').length) },
       (() => {
-        const [y, m] = todayStr.slice(0, 7).split('-').map(Number);
-        const d = new Date(y, m - 2, 1);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const key = shiftMonth(todayStr.slice(0, 7), -1);
         const r = payRuns.find(x => x.month === key);
-        return { label: `${d.toLocaleDateString('en-GB', { month: 'long' })} payroll`, value: r ? r.status : 'Not started' };
+        const due = payrollDueDate(key);
+        const name = monthLabel(key).split(' ')[0];
+        if (r?.status === 'Paid') return { label: `${name} payroll`, value: 'Paid' };
+        const d = daysBetween(todayStr, due);
+        const state = r ? r.status : 'Not started';
+        return { label: `${name} payroll`, value: d < 0 ? `${state} · overdue ${-d}d` : d === 0 ? `${state} · due today` : `${state} · due in ${d}d` };
       })(),
     ];
   }

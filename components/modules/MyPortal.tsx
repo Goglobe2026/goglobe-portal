@@ -6,7 +6,12 @@ import { overallPaid } from './Cases';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import { AnnouncementsPanel } from './Announcements';
+import { TeamMessages } from './TeamMessages';
+import { unreadFor } from '@/lib/messages';
+import { PayslipHistory, lineNet } from './Payroll';
 import type { TeamMember, Lead } from '@/lib/types';
+import { totalSpend, campaignStatus } from '@/lib/campaigns';
+import { closerOf, casesClosedBy, collectedFor, dueCaseBonuses, payrollDueDate, shiftMonth, monthLabel, PAYROLL_DAY } from '@/lib/finance';
 
 function nowTime() { return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 function waLink(phone: string, text: string) {
@@ -16,11 +21,12 @@ function waLink(phone: string, text: string) {
 function isOverdue(l: Lead) { return !!l.nextFollowUp && l.nextFollowUp <= today() && !['Converted', 'Lost'].includes(l.stage); }
 
 export function MyPortal() {
-  const { session, team, leads, setLeads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests, playbook } = useAppData();
+  const { session, team, leads, setLeads, cases, transactions, attendance, setAttendance, adjustments, requests, setRequests, playbook, staffTargets, payRuns } = useAppData();
   const toast = useToast();
   const [showRequest, setShowRequest] = useState(false);
   const [showPlaybook, setShowPlaybook] = useState(false);
   const [msgLeadId, setMsgLeadId] = useState<string | null>(null);
+  const [slipsOpen, setSlipsOpen] = useState(false);
   const staffId = session?.type === 'employee' ? session.staffId : '';
   const found = team.find(x => x.id === staffId);
   if (!found) return <div className="card text-center p-8 text-[var(--muted)]">Staff record not found. Please log out and back in.</div>;
@@ -29,18 +35,27 @@ export function MyPortal() {
   const isSales = t.department === 'Sales';
   const myLeads = leads.filter(l => l.assignedTo === t.id);
   const myCases = cases.filter(c => c.consultant === t.id);
-  const won = myCases.filter(c => c.status === 'Approved').length;
-  const revenue = myCases.reduce((s, c) => s + overallPaid(c), 0);
+  // "Closed" follows the closing employee and date recorded on each case.
+  const closedAll = cases.filter(c => closerOf(c) === t.id);
+  const won = closedAll.length;
+  const revenue = closedAll.reduce((s, c) => s + overallPaid(c), 0);
   const totalPipeline = myLeads.length + myCases.length;
   const rate = totalPipeline ? Math.round((won / totalPipeline) * 100) : 0;
-  const commissionEarned = Math.round(revenue * (t.commissionPercent / 100));
-  const commissionPaid = transactions.filter(x => x.category === 'Commission' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
   const thisMonth = today().slice(0, 7);
-  const closedThisMonth = myCases.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === thisMonth).length;
+  const closedThisMonth = casesClosedBy(cases, t.id, thisMonth).length;
+  const collectedThisMonth = collectedFor(cases, transactions, t.id, thisMonth);
+  const commissionThisMonth = Math.round(collectedThisMonth * (t.commissionPercent / 100));
   const quota = t.monthlyQuota || 5;
   const quotaMet = closedThisMonth >= quota;
-  const bonusEarned = won * t.bonusPerClose;
-  const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
+  const myCaseBonuses = dueCaseBonuses(cases, t.id, thisMonth);
+  const bonusThisMonth = closedThisMonth * t.bonusPerClose + myCaseBonuses.reduce((s, x) => s + x.bonus.amount, 0);
+  // Salary for a month is paid on the 5th of the next month.
+  const lastMonthKey = shiftMonth(thisMonth, -1);
+  const nextPay = today() <= payrollDueDate(lastMonthKey) ? { date: payrollDueDate(lastMonthKey), month: lastMonthKey } : { date: payrollDueDate(thisMonth), month: thisMonth };
+  const myTarget = staffTargets.find(x => x.staffId === t.id && x.month === thisMonth);
+  const myPayslips = payRuns.filter(r => r.status !== 'Draft')
+    .flatMap(r => r.lines.filter(l => l.staffId === t.id).map(l => ({ run: r, line: l })))
+    .sort((a, b) => b.run.month.localeCompare(a.run.month));
   const myAdj = [...adjustments.filter(a => a.staffId === t.id)].sort((a, b) => b.date.localeCompare(a.date));
   const rec = attendance.find(a => a.staffId === t.id && a.date === today());
   const myAttendance = attendance.filter(a => a.staffId === t.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14);
@@ -83,6 +98,8 @@ export function MyPortal() {
         </div>
       )}
 
+      <MyMessagesSection staffId={t.id} />
+
       <SectionHead title="Job description" />
       <div className="card text-[13px] leading-relaxed">{jd}</div>
 
@@ -113,16 +130,17 @@ export function MyPortal() {
           <SectionHead title="My performance" />
           <div className="grid grid-cols-4 gap-3.5 max-md:grid-cols-2">
             <MiniMetric label="Leads collected" value={String(myLeads.length)} />
-            <MiniMetric label="Cases closed" value={String(won)} note={`of ${myCases.length} handled`} />
+            <MiniMetric label="Cases closed" value={String(won)} note={`${closedThisMonth} this month · ${myCases.length} handled`} />
             <MiniMetric label="Revenue collected" value={money(revenue)} />
             <MiniMetric label="Conversion ratio" value={`${rate}%`} />
           </div>
-          <SectionHead title="My earnings" />
+          <SectionHead title="My earnings" count={`Next payday: ${fmtDate(nextPay.date)} (${monthLabel(nextPay.month)} salary)`} />
           <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
             <MiniMetric label="Base salary" value={money(t.salary)} />
             {t.monthlyAllowance > 0 && <MiniMetric label="Monthly allowance" value={money(t.monthlyAllowance)} />}
-            <MiniMetric label={`Commission (${t.commissionPercent}%)`} value={quotaMet ? money(commissionEarned) : `Locked`} note={quotaMet ? `${money(commissionPaid)} already paid` : `Close ${quota - closedThisMonth} more case${quota - closedThisMonth === 1 ? '' : 's'} this month to unlock`} />
-            <MiniMetric label={`Bonus (${money(t.bonusPerClose)}/close)`} value={money(bonusEarned)} note={`${money(bonusPaid)} already paid`} />
+            <MiniMetric label={`Collected this month`} value={money(collectedThisMonth)} note="on cases you closed" />
+            <MiniMetric label={`Commission (${t.commissionPercent}%) this month`} value={quotaMet ? money(commissionThisMonth) : `Locked`} note={quotaMet ? 'paid with payroll' : `Close ${quota - closedThisMonth} more case${quota - closedThisMonth === 1 ? '' : 's'} this month to unlock`} />
+            <MiniMetric label={`Bonuses this month`} value={money(bonusThisMonth)} note={`${closedThisMonth} closed × ${money(t.bonusPerClose)}${myCaseBonuses.length ? ` + ${myCaseBonuses.length} case bonus${myCaseBonuses.length === 1 ? '' : 'es'}` : ''}`} />
           </div>
           <SectionHead title="My leads" count={`${myLeads.length} — ${myLeads.filter(isOverdue).length} due for follow-up`} />
           <div className="card p-0 overflow-auto">
@@ -172,11 +190,47 @@ export function MyPortal() {
           <SectionHead title="My department tasks" />
           <DepartmentSnapshot department={t.department} />
           {t.department === 'Management' && <ManagerReviewQueue />}
-          <SectionHead title="My earnings" />
-          <div className="card" style={{ maxWidth: 280 }}><MiniMetric label="Base salary" value={money(t.salary)} />
-            {t.monthlyAllowance > 0 && <MiniMetric label="Monthly allowance" value={money(t.monthlyAllowance)} />}</div>
+          <SectionHead title="My earnings" count={`Next payday: ${fmtDate(nextPay.date)} (${monthLabel(nextPay.month)} salary)`} />
+          <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
+            <MiniMetric label="Base salary" value={money(t.salary)} />
+            {t.monthlyAllowance > 0 && <MiniMetric label="Monthly allowance" value={money(t.monthlyAllowance)} />}
+            {myCaseBonuses.length > 0 && <MiniMetric label="Case bonuses waiting for payroll" value={money(myCaseBonuses.reduce((s, x) => s + x.bonus.amount, 0))} note={myCaseBonuses.map(x => x.caseRec.name).join(', ')} />}
+          </div>
         </>
       )}
+
+      {(myTarget || isSales) && (
+        <>
+          <SectionHead title={`My targets — ${monthLabel(thisMonth)}`} count="set by management, updates as you close and collect" />
+          {myTarget && (myTarget.casesTarget > 0 || myTarget.revenueTarget > 0) ? (
+            <div className="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
+              {myTarget.casesTarget > 0 && <TargetCard label="Cases to close" done={closedThisMonth} target={myTarget.casesTarget} fmt={n => String(n)} />}
+              {myTarget.revenueTarget > 0 && <TargetCard label="Revenue to collect" done={collectedThisMonth} target={myTarget.revenueTarget} fmt={money} />}
+            </div>
+          ) : <div className="card text-[13px] text-[var(--muted)]">No target has been set for this month yet.</div>}
+        </>
+      )}
+
+      <SectionHead title="My payslips" count={myPayslips.length ? `${myPayslips.length} issued` : 'issued after each monthly payroll'} action={
+        myPayslips.length ? <button className="btn btn-sm ml-auto" onClick={() => setSlipsOpen(true)}>View / print payslips</button> : undefined
+      } />
+      <div className="card p-0 overflow-auto">
+        <table><thead><tr><th>Salary month</th><th>Payroll day</th><th>Net pay</th><th>Status</th></tr></thead>
+          <tbody>
+            {myPayslips.length ? myPayslips.slice(0, 4).map(({ run, line }) => (
+              <tr key={line.id}>
+                <td className="font-medium">{monthLabel(run.month)}</td>
+                <td className="font-mono-ui text-xs">{fmtDate(run.dueDate || payrollDueDate(run.month))}</td>
+                <td className="font-mono-ui text-xs">{money(lineNet(line))}</td>
+                <td>{line.paid ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Paid {fmtDate(line.paidDate)}</span> : <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Approved — payment due</span>}</td>
+              </tr>
+            )) : <tr><td colSpan={4} className="text-[var(--muted)] p-3.5">Your first payslip will appear here after payroll is approved. Salary is paid on the {PAYROLL_DAY}th of the following month.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <Modal open={slipsOpen} onClose={() => setSlipsOpen(false)} wide>
+        {slipsOpen && <PayslipHistory staff={t} onClose={() => setSlipsOpen(false)} />}
+      </Modal>
 
       <SectionHead title="Appreciation & fines" count={`${myAdj.length} entries`} />
       <div className="card p-0 overflow-auto">
@@ -205,7 +259,7 @@ export function MyPortal() {
         </table>
       </div>
 
-      <SectionHead title="My requests" count="leave, advance, or anything else for the CEO" action={
+      <SectionHead title="My requests" count="leave, advance, or anything else for the Head Manager" action={
         <button className="btn btn-primary btn-sm ml-auto" onClick={() => setShowRequest(true)}>+ Submit request</button>
       } />
       <div className="card p-0 overflow-auto">
@@ -271,6 +325,18 @@ function MyMessageLog({ leadId, onClose }: { leadId: string; onClose: () => void
         <button className="btn btn-primary" onClick={add}>Add to log</button>
       </ModalFoot>
     </>
+  );
+}
+
+function TargetCard({ label, done, target, fmt }: { label: string; done: number; target: number; fmt: (n: number) => string }) {
+  const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+  const color = pct >= 100 ? '#0B6E4F' : pct >= 60 ? '#C9922E' : '#B5433A';
+  return (
+    <div className="card">
+      <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)]">{label}</div>
+      <div className="font-display text-[19px] font-semibold mt-1">{fmt(done)} <span className="text-[13px] text-[var(--muted)] font-normal">of {fmt(target)}</span></div>
+      <div className="mt-2 flex items-center gap-2"><div style={{ flex: 1, height: 9, background: '#E7EEF0', borderRadius: 6 }}><div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: color }} /></div><b className="text-[13px]">{pct}%</b></div>
+    </div>
   );
 }
 
@@ -381,7 +447,7 @@ function ManagerReviewQueue() {
           </tbody>
         </table>
       </div>
-      {cases.length > 15 && <div className="text-[11.5px] text-[var(--faint)] -mt-3 mb-4">Showing the 15 most recent — ask the CEO for the full Cases view if you need to see everything.</div>}
+      {cases.length > 15 && <div className="text-[11.5px] text-[var(--faint)] -mt-3 mb-4">Showing the 15 most recent — ask the Head Manager for the full Cases view if you need to see everything.</div>}
     </>
   );
 }
@@ -389,12 +455,12 @@ function ManagerReviewQueue() {
 function DepartmentSnapshot({ department }: { department: string }) {
   const { campaigns, cases, transactions, appointments, team, leads } = useAppData();
   if (department === 'Marketing') {
-    const spend = campaigns.reduce((s, c) => s + c.spend, 0);
+    const spend = campaigns.reduce((s, c) => s + totalSpend(c), 0);
     const camLeads = leads.filter(l => l.campaign);
     const cpl = camLeads.length ? Math.round(spend / camLeads.length) : 0;
     return (
       <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
-        <MiniMetric label="Campaigns running" value={String(campaigns.length)} />
+        <MiniMetric label="Campaigns running" value={String(campaigns.filter(c => campaignStatus(c) === 'Running').length)} />
         <MiniMetric label="Total ad spend" value={money(spend)} />
         <MiniMetric label="Avg. cost per lead" value={cpl ? money(cpl) : '—'} />
       </div>
@@ -480,6 +546,23 @@ function RequestForm({ staffId, onClose }: { staffId: string; onClose: () => voi
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={save}>Submit</button>
       </ModalFoot>
+    </>
+  );
+}
+
+
+// Private chat with the Head Manager and colleagues, kept closed until opened.
+function MyMessagesSection({ staffId }: { staffId: string }) {
+  const { messages } = useAppData();
+  const [open, setOpen] = useState(false);
+  const unread = unreadFor(messages, staffId);
+  return (
+    <>
+      <SectionHead title="Team messages" count="private — only you and the other person can read a chat" action={
+        <button className="btn btn-sm" onClick={() => setOpen(o => !o)}>{open ? 'Hide messages' : unread ? `Open messages (${unread} new)` : 'Open messages'}</button>
+      } />
+      {!open && unread > 0 && <div className="card mb-3.5" style={{ background: 'var(--gold-50)' }}><span className="text-[13px] font-semibold">You have {unread} unread message{unread === 1 ? '' : 's'}.</span></div>}
+      {open && <div className="mb-3.5"><TeamMessages embedded /></div>}
     </>
   );
 }

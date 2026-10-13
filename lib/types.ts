@@ -21,6 +21,8 @@ export interface Lead {
   isVip: boolean;
   occupation: string;
   lastEngagementSent: string;
+  // The Facebook lead id from the sheet (e.g. "l:961953543161253") — stops the same lead being added twice.
+  externalId?: string;
 }
 
 export interface DocItem {
@@ -28,6 +30,29 @@ export interface DocItem {
   name: string;
   order: number;
   status: 'Pending' | 'Received' | 'Verified';
+}
+
+// One extra applicant on a family / group file. The head of the family is
+// the case itself (`Case.name`); everyone else is listed here.
+export interface FamilyMember {
+  id: string;
+  name: string;
+  relation: string;
+  passportNo?: string;
+  age?: string;
+}
+
+// A bonus attached to one case: pick an employee, enter an amount. It is
+// paid through Payroll (as its own line on the payslip) and then marked paid.
+export interface CaseBonus {
+  id: string;
+  staffId: string;
+  amount: number;
+  note: string;
+  month: string;        // payroll month it should be paid in (YYYY-MM)
+  paid: boolean;
+  paidDate?: string;
+  paidRunMonth?: string;
 }
 
 export interface Case {
@@ -60,6 +85,14 @@ export interface Case {
   expectedPaymentDate?: string;
   lastReminderDate?: string;
   reminderCount?: number;
+  // Family / group file: extra applicants besides the head of family.
+  familyMembers?: FamilyMember[];
+  // Who closed the deal and on what date. Counts in that employee's
+  // performance and payroll for that month. Missing = the consultant /
+  // created date (older cases); '' = not closed yet.
+  closedBy?: string;
+  closedDate?: string;
+  caseBonuses?: CaseBonus[];
 }
 
 export interface ReferralAgent {
@@ -175,6 +208,18 @@ export interface PayLineItem {
   amount: number;
   posting: string;
   auto: boolean;
+  fullAmount?: number;   // full-month amount when this item is pro-rated by payable days
+  refs?: string[];       // ids of case bonuses included in this item
+  note?: string;         // small explanation printed under the item on the payslip
+}
+
+// How many days of the month the employee is paid for (joining / leaving).
+export interface PayProRata {
+  workingDays: number;
+  payableDays: number;
+  from: string;
+  to: string;
+  note: string;
 }
 
 export interface PayAttendance {
@@ -197,6 +242,8 @@ export interface PayrollLine {
   accountNo: string;
   items: PayLineItem[];
   attendance: PayAttendance;
+  proRata?: PayProRata;
+  notes?: string[];      // things the person running payroll should know (not printed)
   slipNumber: string;
   paid: boolean;
   paidDate: string;
@@ -205,6 +252,7 @@ export interface PayrollLine {
 export interface PayRun {
   id: string;
   month: string;
+  dueDate?: string;
   status: 'Draft' | 'Approved' | 'Paid';
   createdDate: string;
   approvedDate: string;
@@ -347,14 +395,46 @@ export interface Transaction {
   amount: number;
   note: string;
   caseId?: string;
+  // Set when this expense was posted automatically from a campaign payment.
+  campaignId?: string;
+  adSpendId?: string;
+}
+
+// One payment to an ad platform. Paid in dollars (USD) with the rate and the
+// tax/bank charges added on top, or paid directly in rupees. `pkr` is what it
+// really cost in rupees and is what goes into the books.
+export interface AdSpend {
+  id: string;
+  date: string;
+  currency: 'USD' | 'PKR';
+  usd?: number;
+  rate?: number;
+  taxPct?: number;
+  pkr: number;
+  note?: string;
+  txId: string; // the expense entry this payment created in Accounts
 }
 
 export interface Campaign {
   id: string;
   name: string;
   platform: string;
+  // Spend entered before payments were logged here (not in the books).
   spend: number;
   startDate: string;
+  // Missing = Running (older campaigns).
+  status?: 'Running' | 'Paused' | 'Closed';
+  endDate?: string;
+  monthlyBudget?: number; // PKR per month
+  budgetUsd?: number;     // the same budget in dollars, when it was set in dollars
+  budgetRate?: number;    // PKR per $1 and tax % used for that budget (pre-fill for payments)
+  budgetTaxPct?: number;
+  // The campaign's name in Facebook Ads Manager, if different — leads from the
+  // sheet carry that name, so this is how they are matched to the campaign.
+  fbName?: string;
+  spends?: AdSpend[];
+  autoCreated?: boolean;
+  closeNote?: string;
 }
 
 export interface AttendanceRecord {
@@ -466,8 +546,36 @@ export type Collections = {
   announcements: Announcement[];
   docregister: DocRecord[];
   letters: Letter[];
+  qcchecks: QcCheck[];
+  messages: TeamMessage[];
 };
 
 export type CollectionName = keyof Collections;
 
 export type Session = { type: 'ceo' } | { type: 'employee'; staffId: string };
+
+
+// One quality check of a case file before it goes out. Newest check wins.
+export interface QcItem { id: string; label: string; ok: boolean; note?: string }
+export interface QcCheck {
+  id: string;
+  caseId: string;
+  date: string;            // YYYY-MM-DD
+  at: string;              // ISO time it was saved (orders checks on the same day)
+  reviewerId: string;      // team member id, or 'ceo'
+  reviewerName: string;
+  result: 'Passed' | 'Failed';
+  items: QcItem[];
+  notes: string;
+}
+
+// A private message between two people. from / to are team member ids, or
+// 'ceo' for the Head Manager. Only those two people can ever read it.
+export interface TeamMessage {
+  id: string;
+  from: string;
+  to: string;
+  text: string;
+  at: string;              // ISO time
+  readAt?: string;
+}

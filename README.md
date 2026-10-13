@@ -19,12 +19,111 @@ This replaces the earlier single-HTML-file version.
 
 ## Every module is here
 
-Dashboard, Leads, Campaigns, Cases (full case file with color-coded document
-checklist, discounts, manager review), Appointments (calendar booking view),
-Pricing by country, HR Department (employee directory, full onboarding form,
-PIN reset, appreciation/fines, leave requests), Attendance, Accounts, Reports
-& Finance (weekly comparison, monthly trend, expense breakdown, bank
-accounts, journal vouchers), and My Portal (employee self-service).
+Dashboard, Leads, Campaigns (budgets and ad spend), Cases (full case file with
+color-coded document checklist, discounts, quality check, manager review),
+Appointments (calendar booking view), Pricing by country, HR Department
+(employee directory, full onboarding form, PIN reset, appreciation/fines,
+leave requests), Attendance, Payroll, Accounts, Monthly Closing, Reports &
+Finance (weekly comparison, monthly trend, expense breakdown, bank accounts,
+journal vouchers), Quality Control, Team Messages, and My Portal (employee
+self-service).
+
+The sidebar groups every module under small headings (Marketing, Cases &
+Clients, HR, Finance, Quality & Team). Click a heading for that group's
+overview, or use the ◀ button at the top to shrink the sidebar to an icon
+strip — the choice is remembered on that computer.
+
+## Family files, closings and payroll (how the numbers work)
+
+- **Family / group file.** In Cases, "+ Add case" has a *Single client* /
+  *Family / group file* switch. A family is one case with many applicants,
+  one fee, one ledger and one invoice. Add members one by one, or paste a list
+  (`Name, Relation, Passport, Age` — one per line). Visa and appointment fees
+  are charged per applicant; the consultation fee once per family unless you
+  tick the box. Each member can get their own document checklist.
+- **Entering older cases.** The case form takes a closing date, money already
+  received (with its date) and an optional bonus, so past cases land in the
+  right month without editing anything afterwards.
+- **Closed by.** Every case has a *Closed by* employee and a *Closing date*.
+  That one entry feeds the employee's monthly performance, targets, the
+  Monthly Closing report and payroll. A family file counts as one closed case.
+  "Closed" means the deal is booked, not that the visa was approved.
+- **Case bonus.** On any case you can give a bonus to one or more employees and
+  choose the payroll month. It appears as its own "Case bonus" line on the
+  payslip and is marked paid when that pay run is paid, so it never repeats.
+- **Payroll.** Salaries are paid on the **5th of the following month**
+  (September salary on 5 October). The Payroll page shows the countdown and
+  whether the run was on time. Joiners and leavers are paid only for the days
+  they worked: working days are Monday to Saturday, pro-rated from the
+  employee's joining date and last working day, and the "Days paid" figure can
+  be adjusted per employee before approval. Commission is calculated on money
+  collected in the pay month on the employee's own closed cases, and needs the
+  monthly case quota to be met.
+- **Employees** see only their own targets, case bonuses and issued payslips in
+  My Portal. They cannot change them.
+
+## Campaigns: budgets, dollar payments and closing
+
+- **One record per campaign** — name, platform, start date, optional monthly
+  budget (in dollars or rupees) and, if it differs, the campaign's name in
+  Facebook Ads Manager. Campaign names that arrive with leads from the sheet
+  or the website are created automatically as *Running* campaigns, ready for a
+  budget.
+- **Log every ad payment.** Enter the dollars charged, the rate (PKR per $1) and
+  the tax / bank-charge %, and the portal works out the rupee cost
+  (`$ × rate + tax`). If you know the exact rupee amount on your bank or card
+  statement, type it and it overrides the calculation. Rupee payments can be
+  entered directly. Each payment is added to **Accounts as an expense in the
+  category "Marketing"** on the date paid, so it flows into Reports and the
+  Monthly Closing automatically. Editing or removing a payment keeps Accounts in
+  step.
+- **Several campaigns at once.** Each has its own budget bar, spend, leads,
+  cost per lead and cost per client. The tiles on top show this month's ad
+  spend, total budget of the running campaigns and what is left or over.
+- **Pause / Close / Re-open.** Closing a campaign records its last day; it stops
+  counting in future months' budget, keeps all its history, and disappears from
+  the lead form's campaign list. Deleting a campaign never deletes the
+  expenses already booked.
+- **Monthly Closing** shows an *Advertising by campaign* table (USD and PKR
+  including tax, against budget) under the expenses.
+
+## Facebook / Google Sheet lead sync
+
+There are two ways in, both safe to use together:
+
+1. **"Sync from Google Sheet" button** (Leads page). Paste one sheet link per
+   line (the normal address-bar link works; the sheet must be shared as
+   *Anyone with the link → Viewer*). Choose how far back to bring leads
+   (default: last 30 days). Different forms with different columns — for
+   example the Schengen sheet and the UK sheet — are understood automatically:
+   name, phone (Pakistani numbers are repaired to +92 format), country,
+   profession, campaign and the answers to the form questions are kept on the
+   lead.
+2. **Automatic push** with `scripts/google-sheets-lead-sync.gs` (every 5 min,
+   described in its header). It sends each row as it is and the portal does
+   the mapping.
+
+A lead already in the portal (same Facebook lead id or same phone number) is
+never added twice.
+
+## Saving and sharing safely
+
+Everyone on the team can have the portal open at the same time. Saves are
+merged record by record, so one person's change can't wipe out another's, a
+lead that arrives from the sheet while someone is editing is kept, and the
+screen refreshes itself every few seconds with other people's changes.
+
+## Quality Control and Team Messages
+
+- **Quality Control** — before the manager can approve a file, it needs a
+  *passing* quality check: ten standard points (passport, matching names,
+  photos, forms, financial proof, ...). Any point not ticked needs a written
+  reason and the check is recorded as Failed. Every check is kept with who did
+  it and when; the page shows pass rate and files still waiting.
+- **Team Messages** — private one-to-one chat between any two people (including
+  the Head Manager). The server only ever sends you the messages you sent or
+  received, so even an admin cannot read someone else's chat, and no one can
+  write a message in another person's name. Employees chat from *My Portal*.
 
 ## Running it locally
 
@@ -37,8 +136,8 @@ npm run build
 npm start
 ```
 
-Default CEO PIN after seeding: **9999** — change it immediately from
-Reports & Finance → Owner PIN, same as before.
+Default Head Manager PIN after seeding: **9999** — change it immediately from
+Reports & Finance → Head Manager PIN. Starter employee PINs are 1001–1008.
 
 ## Deploying it live
 
@@ -80,26 +179,25 @@ signature is identical (`name`, `phone`, `destination`, `visaType`, `message`).
 ## Connecting your Facebook lead sheet (Google Sheets)
 
 If your Facebook ad leads land in a Google Sheet, `scripts/google-sheets-lead-sync.gs`
-automatically pushes every new row into the portal — no manual copying, no
-missed follow-ups. Full setup instructions are written as comments at the top
-of that file. Short version:
+pushes every new row into the portal automatically — no manual copying, no
+missed follow-ups. Full setup instructions are at the top of that file. Short
+version, once per sheet:
 
-1. Open your Google Sheet → Extensions → Apps Script.
+1. Open the Google Sheet → Extensions → Apps Script.
 2. Paste in the contents of `scripts/google-sheets-lead-sync.gs`.
-3. Edit the CONFIG section at the top: set `PORTAL_URL` to your real deployed
-   address, and make `COLUMN_MAP` match your sheet's actual column headers.
-4. Run the `createTrigger` function once (you'll need to authorize it —
-   that's normal, it's just your script talking to your own portal).
-5. Done. Every 5 minutes, any new row gets sent automatically, and a
-   "Portal Status" column shows "Synced ..." or "Failed ..." next to each
-   row so your team can see at a glance whether it worked.
+3. Set `PORTAL_URL` to your real address (ending in `/api/leads`). If the leads
+   are not on the first tab, set `TAB_GID` (the number after `gid=` in the
+   address bar) — e.g. `754438` for the UK sheet.
+4. Run the `createTrigger` function once and authorize it (normal — it is your
+   own script talking to your own portal).
+5. Done. Every 5 minutes new rows are sent, and a "Portal Status" column shows
+   "Synced ...", "Skipped — no phone" or "Failed ..." beside each row.
 
-Leads that arrive this way are tagged with source "Facebook" (editable in
-the script) and, if your sheet has a campaign column, attributed to the
-specific ad that generated them — which feeds straight into the existing
-cost-per-lead numbers on the Campaigns page. Every new lead also gets an
-automatic "follow up today" reminder, so it shows up immediately under
-Leads → Follow-ups due.
+The script sends the row as it is; the portal does the mapping, so Schengen,
+UK or any new Facebook form works without changing columns. Campaign names are
+matched to (or create) campaigns on the Campaigns page, which feeds the
+cost-per-lead numbers. Every new lead also gets an automatic "follow up today"
+reminder under Leads → Follow-ups due.
 
 ## Honest limitations, carried over from before
 

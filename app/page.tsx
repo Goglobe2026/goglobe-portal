@@ -25,6 +25,8 @@ import { Testimonials } from '@/components/modules/Testimonials';
 import { ReferralAgents } from '@/components/modules/ReferralAgents';
 import { GroupTours } from '@/components/modules/GroupTours';
 import { MyPortal } from '@/components/modules/MyPortal';
+import { QualityControl } from '@/components/modules/QualityControl';
+import { TeamMessages } from '@/components/modules/TeamMessages';
 import { ModuleHub } from '@/components/shell/ModuleHub';
 import { GroupDashboard } from '@/components/shell/GroupDashboard';
 import { NAV_GROUPS, isGroupHub } from '@/lib/navGroups';
@@ -101,6 +103,8 @@ function PortalApp() {
       {tab === 'testimonials' && <Testimonials />}
       {tab === 'referralagents' && <ReferralAgents />}
       {tab === 'grouptours' && <GroupTours />}
+      {tab === 'qc' && <QualityControl />}
+      {tab === 'messages' && <TeamMessages />}
     </Shell>
   );
 }

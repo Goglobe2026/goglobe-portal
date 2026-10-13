@@ -6,6 +6,7 @@ import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { LOGO_FULL } from '@/lib/logo';
+import { spendInMonth, usdInMonth, campaignStatus, budgetForMonth } from '@/lib/campaigns';
 import { computeMonth, monthLabel, shiftMonth, closingDueDate, daysBetween } from '@/lib/finance';
 import type { MonthlyClosing as ClosingRecord } from '@/lib/types';
 
@@ -37,7 +38,7 @@ export function MonthlyClosing() {
 }
 
 function ClosingSheet({ month }: { month: string }) {
-  const { transactions, cases, setCases, payRuns, bankAccounts, monthlyClosings, setMonthlyClosings, logActivity } = useAppData();
+  const { transactions, cases, setCases, payRuns, bankAccounts, monthlyClosings, setMonthlyClosings, logActivity, campaigns } = useAppData();
   const toast = useToast();
   const todayStr = today();
 
@@ -48,6 +49,13 @@ function ClosingSheet({ month }: { month: string }) {
 
   const f = computeMonth(month, transactions, cases, payRuns, todayStr);
   const monthEnded = todayStr > f.end;
+  const adRows = campaigns
+    .map(c => ({ c, pkr: spendInMonth(c, month), usd: usdInMonth(c, month), n: (c.spends || []).filter(x => x.date.slice(0, 7) === month).length, budget: budgetForMonth(c, month) }))
+    .filter(r => r.pkr > 0 || r.budget > 0)
+    .sort((a, b) => b.pkr - a.pkr);
+  const adTotalPkr = adRows.reduce((s, r) => s + r.pkr, 0);
+  const adTotalUsd = adRows.reduce((s, r) => s + r.usd, 0);
+  const adTotalBudget = adRows.reduce((s, r) => s + r.budget, 0);
 
   const [openingManual, setOpeningManual] = useState('');
   const [actualInput, setActualInput] = useState(closing && closing.actualClosing !== null ? String(closing.actualClosing) : '');
@@ -248,6 +256,37 @@ function ClosingSheet({ month }: { month: string }) {
               </tbody>
             </table>}
 
+        {adRows.length > 0 && (
+          <>
+            <div style={{ ...hint, marginTop: 14, fontWeight: 700, color: NAVY }}>Advertising by campaign</div>
+            <div style={hint}>Ad payments are already part of the &ldquo;Marketing&rdquo; line above. Dollar payments are shown at the rupee cost actually paid, including tax and bank charges.</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #cfd8dc' }}>
+              <thead><tr><th style={th}>Campaign</th><th style={th}>Status</th><th style={{ ...th, ...right }}>Paid (USD)</th><th style={{ ...th, ...right }}>Cost (PKR)</th><th style={{ ...th, ...right }}>Month budget</th><th style={{ ...th, ...right }}>Left / over</th></tr></thead>
+              <tbody>
+                {adRows.map(r => (
+                  <tr key={r.c.id}>
+                    <td style={td}>{r.c.name}<div style={{ fontSize: 12.5, color: '#5B6270' }}>{r.c.platform} · {r.n} payment{r.n === 1 ? '' : 's'}</div></td>
+                    <td style={td}>{campaignStatus(r.c)}</td>
+                    <td style={{ ...td, ...right }}>{r.usd ? `$${r.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</td>
+                    <td style={{ ...td, ...right }}>{money(r.pkr)}</td>
+                    <td style={{ ...td, ...right }}>{r.budget ? money(r.budget) : '—'}</td>
+                    <td style={{ ...td, ...right, color: r.budget && r.pkr > r.budget ? '#B5433A' : undefined }}>
+                      {r.budget ? (r.pkr > r.budget ? `Over by ${money(r.pkr - r.budget)}` : `${money(r.budget - r.pkr)} left`) : '—'}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ background: '#F2F8F5' }}>
+                  <td style={{ ...td, fontWeight: 700 }} colSpan={2}>Total advertising</td>
+                  <td style={{ ...td, ...right, fontWeight: 700 }}>{adTotalUsd ? `$${adTotalUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</td>
+                  <td style={{ ...td, ...right, fontWeight: 700 }}>{money(adTotalPkr)}</td>
+                  <td style={{ ...td, ...right, fontWeight: 700 }}>{adTotalBudget ? money(adTotalBudget) : '—'}</td>
+                  <td style={td} />
+                </tr>
+              </tbody>
+            </table>
+          </>
+        )}
+
         <h2 style={h2}>6. Pending collections carried forward</h2>
         <div style={hint}>What clients still owe as at {fmtDate(f.end)}. This is not part of {monthLabel(month)} revenue — each amount counts as revenue in the month it is received.</div>
         {f.pendingRows.length === 0
@@ -278,7 +317,7 @@ function ClosingSheet({ month }: { month: string }) {
 
         <div className="avoid-break" style={{ display: 'flex', gap: 48, margin: '44px 0 8px' }}>
           <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 6, fontSize: 14 }}>PREPARED BY</div>
-          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 6, fontSize: 14 }}>APPROVED BY (CEO)</div>
+          <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: 6, fontSize: 14 }}>APPROVED BY (HEAD MANAGER)</div>
         </div>
       </div>
     </>

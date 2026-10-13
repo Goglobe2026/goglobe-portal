@@ -50,7 +50,28 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'pricing', label: 'Pricing by Country', blurb: 'Consultation, visa service, and appointment fees' },
     ],
   },
+  {
+    id: 'grp-quality', label: 'Quality & Team', blurb: 'Check files before they go out, and talk to your team privately',
+    tiles: [
+      { id: 'qc', label: 'Quality Control', blurb: 'Pre-submission checklist for every case, with pass / fail history' },
+      { id: 'messages', label: 'Team Messages', blurb: 'Private one-to-one chat between you and each team member' },
+    ],
+  },
 ];
+
+// What the sidebar shows: every module as its own link, under small group
+// headings. Group Tours is listed with Cases & Clients here.
+export type SidebarSection = { id: string; label: string; groupId: string; items: NavTile[] };
+export function sidebarSections(): SidebarSection[] {
+  const out: SidebarSection[] = [];
+  for (const g of NAV_GROUPS) {
+    if (g.standalone) continue;
+    const items = [...g.tiles];
+    if (g.id === 'grp-cases') items.push({ id: 'grouptours', label: 'Group Tours', blurb: 'Package tour registrations and QR verification' });
+    out.push({ id: g.id, label: g.label, groupId: g.id, items });
+  }
+  return out;
+}
 
 // Given any leaf tab id (e.g. "leads"), finds which group it lives under —
 // used both for the sidebar's "back to..." link and for highlighting the

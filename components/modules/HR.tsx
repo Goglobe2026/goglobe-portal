@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today, DEPARTMENTS, JOB_DESCRIPTIONS } from '@/lib/constants';
 import { overallPaid } from './Cases';
+import { closerOf, casesClosedBy, collectedFor, dueCaseBonuses } from '@/lib/finance';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { TeamMember } from '@/lib/types';
@@ -164,7 +165,7 @@ export function HR() {
             <BarChart data={sales.map(t => ({
               name: t.name,
               leads: leads.filter(l => l.assignedTo === t.id).length,
-              closed: cases.filter(c => c.consultant === t.id && c.status === 'Approved').length,
+              closed: cases.filter(c => closerOf(c) === t.id).length,
             }))}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -254,40 +255,28 @@ function AdjustForm({ staff, type, onClose }: { staff: TeamMember; type: 'Bonus'
 }
 
 function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type: 'Bonus' | 'Fine') => void }) {
-  const { leads, cases, transactions, team, setTeam, setTransactions, adjustments, requests, logActivity } = useAppData();
-  const toast = useToast();
+  const { leads, cases, transactions, adjustments } = useAppData();
   const isSales = t.department === 'Sales';
   const myLeads = leads.filter(l => l.assignedTo === t.id).length;
-  const myCases = cases.filter(c => c.consultant === t.id);
-  const won = myCases.filter(c => c.status === 'Approved').length;
-  const revenue = myCases.reduce((s, c) => s + overallPaid(c), 0);
-  const total = myLeads + myCases.length;
+  const handled = cases.filter(c => c.consultant === t.id).length;
+  // "Closed" follows the closing employee and date set on each case.
+  const closedAll = cases.filter(c => closerOf(c) === t.id);
+  const won = closedAll.length;
+  const revenue = closedAll.reduce((s, c) => s + overallPaid(c), 0);
+  const total = myLeads + handled;
   const rate = total ? Math.round((won / total) * 100) : 0;
-  const commissionEarned = Math.round(revenue * (t.commissionPercent / 100));
-  const commissionPaid = transactions.filter(x => x.category === 'Commission' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
-  const commissionDue = Math.max(0, commissionEarned - commissionPaid);
   const thisMonth = today().slice(0, 7);
-  const closedThisMonth = myCases.filter(c => c.status === 'Approved' && c.createdAt.slice(0, 7) === thisMonth).length;
+  const closedThisMonth = casesClosedBy(cases, t.id, thisMonth).length;
+  const collectedThisMonth = collectedFor(cases, transactions, t.id, thisMonth);
   const quota = t.monthlyQuota || 5;
   const quotaMet = closedThisMonth >= quota;
-  const bonusEarned = won * t.bonusPerClose;
-  const bonusPaid = transactions.filter(x => x.category === 'Bonus' && x.party === t.name).reduce((s, x) => s + x.amount, 0);
-  const bonusDue = Math.max(0, bonusEarned - bonusPaid);
+  const commissionThisMonth = Math.round(collectedThisMonth * (t.commissionPercent / 100));
+  const caseBonusDue = dueCaseBonuses(cases, t.id, thisMonth).reduce((s, x) => s + x.bonus.amount, 0);
+  const bonusThisMonth = closedThisMonth * t.bonusPerClose + caseBonusDue;
   const [slipsOpen, setSlipsOpen] = useState(false);
   const myAdj = adjustments.filter(a => a.staffId === t.id);
   const apprTotal = myAdj.filter(a => a.type === 'Bonus').reduce((s, a) => s + a.amount, 0);
   const fineTotal = myAdj.filter(a => a.type === 'Fine').reduce((s, a) => s + a.amount, 0);
-
-  function payCommission() {
-    setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Commission', party: t.name, amount: commissionDue, note: 'Sales commission' }]);
-    logActivity(`Commission paid — ${t.name}, ${money(commissionDue)}`);
-    toast('Commission recorded');
-  }
-  function payBonus() {
-    setTransactions(prev => [...prev, { id: genId('tx'), date: today(), type: 'Expense', category: 'Bonus', party: t.name, amount: bonusDue, note: 'Closed-case bonus' }]);
-    logActivity(`Bonus paid — ${t.name}, ${money(bonusDue)}`);
-    toast('Bonus recorded');
-  }
 
   return (
     <div className="card">
@@ -299,8 +288,8 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
       {isSales && (
         <>
           <Row label="Leads collected" value={String(myLeads)} />
-          <Row label="Cases handled" value={String(myCases.length)} />
-          <Row label="Leads closed" value={String(won)} />
+          <Row label="Cases handled" value={String(handled)} />
+          <Row label="Cases closed (all time)" value={String(won)} />
           <Row label="Revenue collected" value={money(revenue)} />
           <Row label="Conversion ratio" value={`${rate}%`} last />
         </>
@@ -308,16 +297,17 @@ function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type:
       <div className="pt-2.5 border-t" style={{ borderColor: 'var(--line)' }}>
         <Row label="Base salary" value={money(t.salary)} />
         {t.monthlyAllowance > 0 && <Row label="Monthly allowance" value={money(t.monthlyAllowance)} />}
+        {t.contractStart && <Row label="Joined" value={fmtDate(t.contractStart)} />}
         {isSales && <>
-          <Row label={`This month's quota (${quota})`} value={`${closedThisMonth}/${quota} closed`} />
-          <Row label="Commission due" value={quotaMet ? money(commissionDue) : `Locked — ${quota - closedThisMonth} more to unlock`} />
-          <Row label="Bonus due" value={money(bonusDue)} />
+          <Row label={`This month's closings (quota ${quota})`} value={`${closedThisMonth}/${quota} closed`} />
+          <Row label="Collected this month" value={money(collectedThisMonth)} />
+          <Row label={`Commission this month (${t.commissionPercent}%)`} value={quotaMet ? money(commissionThisMonth) : `Locked — ${quota - closedThisMonth} more to unlock`} />
         </>}
+        {bonusThisMonth > 0 && <Row label="Bonuses this month" value={money(bonusThisMonth)} />}
         {(apprTotal || fineTotal) ? <Row label="Appreciation / fines" value={`+${money(apprTotal)} / -${money(fineTotal)}`} last /> : null}
+        <div className="text-[11.5px] text-[var(--faint)] mb-1.5">Commission and bonuses are paid with the monthly payroll.</div>
         <div className="flex gap-2 flex-wrap mt-2.5">
           <button className="btn btn-sm flex-1" onClick={() => setSlipsOpen(true)}>Payslips</button>
-          {isSales && quotaMet && commissionDue > 0 && <button className="btn btn-sm flex-1" onClick={payCommission}>Pay commission</button>}
-          {isSales && bonusDue > 0 && <button className="btn btn-sm flex-1" onClick={payBonus}>Pay bonus</button>}
         </div>
         <div className="flex gap-2 mt-2">
           <button className="btn btn-sm flex-1" style={{ color: 'var(--green)' }} onClick={() => onAdjust('Bonus')}>+ Appreciation</button>
@@ -411,7 +401,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
               <span className="text-[13px] font-medium">Give this person full admin access</span>
             </label>
             <div className="text-[11.5px] mt-1.5" style={{ color: isAdmin ? '#8a2020' : 'var(--faint)' }}>
-              This is the same as the CEO login — every module, every salary, every bank balance, and the ability to grant or remove this same access from anyone else, including you. Only turn this on for someone you'd trust with the owner's own PIN.
+              This is the same as the Head Manager login — every module, every salary, every bank balance, and the ability to grant or remove this same access from anyone else, including you. Only turn this on for someone you'd trust with the Head Manager's own PIN.
             </div>
           </div>
         </>

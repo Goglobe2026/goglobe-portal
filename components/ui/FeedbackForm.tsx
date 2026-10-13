@@ -69,7 +69,7 @@ export function FeedbackForm({ referenceCode }: { referenceCode: string }) {
       </div>
       {moneyDemanded === true && (
         <textarea rows={2} value={moneyDetails} onChange={e => setMoneyDetails(e.target.value)}
-          placeholder="Please tell us what happened — this goes directly and only to the company owner"
+          placeholder="Please tell us what happened — this goes directly and only to the Head Manager"
           className="w-full mb-3" />
       )}
 

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, genId, today } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
-import { caseForTx, monthLabel, shiftMonth } from '@/lib/finance';
+import { monthLabel, shiftMonth, casesClosedBy, collectedFor, applicantsOf } from '@/lib/finance';
 import { ARIAL, NAVY, th, td, R, inputStyle, bigBtn } from '@/components/ui/docStyles';
 import type { TeamMember } from '@/lib/types';
 
@@ -11,17 +11,21 @@ function useMetrics(month: string) {
   const { cases, transactions, leads, attendance, clientFeedback, staffTargets, appraisals } = useAppData();
   const todayStr = today();
   return (t: TeamMember) => {
-    const closed = cases.filter(c => c.consultant === t.id && c.status === 'Approved' && c.createdAt.slice(0, 7) === month).length;
-    const revenue = transactions.filter(x => x.type === 'Income' && x.date.slice(0, 7) === month).reduce((s, x) => caseForTx(x, cases)?.consultant === t.id ? s + x.amount : s, 0);
+    // Counted for the employee who closed the case, in the month it was closed.
+    // A family file is one closed case (its applicants are shown alongside).
+    const closedCases = casesClosedBy(cases, t.id, month);
+    const closed = closedCases.length;
+    const applicants = closedCases.reduce((s, c) => s + applicantsOf(c), 0);
+    const revenue = collectedFor(cases, transactions, t.id, month);
     const myLeads = leads.filter(l => l.assignedTo === t.id && l.createdAt.slice(0, 7) === month);
     const [y, m] = month.split('-').map(Number); const dim = new Date(y, m, 0).getDate(); let elapsed = 0;
-    for (let d = 1; d <= dim; d++) { if (new Date(y, m - 1, d).getDay() === 0) continue; const iso = `${month}-${String(d).padStart(2, '0')}`; if (iso <= todayStr && (!t.contractStart || iso >= t.contractStart)) elapsed++; }
+    for (let d = 1; d <= dim; d++) { if (new Date(y, m - 1, d).getDay() === 0) continue; const iso = `${month}-${String(d).padStart(2, '0')}`; if (iso <= todayStr && (!t.contractStart || iso >= t.contractStart) && (!t.lastWorkingDay || iso <= t.lastWorkingDay)) elapsed++; }
     const recs = attendance.filter(a => a.staffId === t.id && a.date.slice(0, 7) === month);
     const attendancePct = recs.length && elapsed ? Math.min(100, Math.round(recs.filter(a => a.checkIn || a.onApprovedLeave).length / elapsed * 100)) : null;
     const fb = clientFeedback.filter(f => f.consultantId === t.id && f.submittedAt.slice(0, 7) === month);
     const rating = fb.length ? fb.reduce((s, f) => s + f.rating, 0) / fb.length : null;
     const target = staffTargets.find(x => x.staffId === t.id && x.month === month);
-    return { closed, revenue, leads: myLeads.length, converted: myLeads.filter(l => l.stage === 'Converted').length, attendancePct, rating, target, ap: appraisals.find(a => a.staffId === t.id && a.month === month) };
+    return { closed, applicants, revenue, leads: myLeads.length, converted: myLeads.filter(l => l.stage === 'Converted').length, attendancePct, rating, target, ap: appraisals.find(a => a.staffId === t.id && a.month === month) };
   };
 }
 const pctOf = (actual: number, target: number) => target > 0 ? Math.min(100, Math.round(actual / target * 100)) : null;
@@ -75,7 +79,7 @@ function TargetsTab({ month }: { month: string }) {
   return (
     <>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <div style={{ fontSize: 15, color: '#5B6270', maxWidth: 620, lineHeight: 1.6 }}>Set what each person should achieve this month. Progress fills in by itself from their closed cases and the money collected on their clients’ cases.</div>
+        <div style={{ fontSize: 15, color: '#5B6270', maxWidth: 620, lineHeight: 1.6 }}>Set what each person should achieve this month. Progress fills in by itself from the cases each person closed this month (by closing date) and the money collected on those cases.</div>
         <div className="flex gap-2"><button className="btn" style={bigBtn} onClick={copyLast}>Copy last month</button><button className="btn btn-primary" style={bigBtn} onClick={save}>Save targets</button></div>
       </div>
       <div className="card" style={{ padding: 0, overflow: 'auto' }}>
@@ -121,7 +125,7 @@ function AppraisalTab({ month }: { month: string }) {
           <thead><tr><th style={th}>#</th><th style={th}>Employee</th><th style={th}>Targets</th><th style={th}>Attendance</th><th style={th}>Client rating</th><th style={th}>Your rating</th><th style={{ ...th, ...R }}>Score</th><th style={th}>Comments</th></tr></thead>
           <tbody>{rows.map((r, i) => (
             <tr key={r.t.id}><td style={td}>{i + 1}</td><td style={td}><b>{r.t.name}</b><div style={{ fontSize: 13, color: '#5B6270' }}>{r.t.role}</div></td>
-              <td style={{ ...td, minWidth: 150 }}><Bar pct={r.tp} /><div style={{ fontSize: 12.5, color: '#5B6270' }}>{r.m.closed} closed · {money(r.m.revenue)}</div></td>
+              <td style={{ ...td, minWidth: 150 }}><Bar pct={r.tp} /><div style={{ fontSize: 12.5, color: '#5B6270' }}>{r.m.closed} closed{r.m.applicants > r.m.closed ? ` (${r.m.applicants} applicants)` : ''} · {money(r.m.revenue)}</div></td>
               <td style={td}>{r.m.attendancePct === null ? <span style={{ color: '#93AC9F' }}>No data</span> : `${r.m.attendancePct}%`}</td>
               <td style={td}>{r.m.rating === null ? <span style={{ color: '#93AC9F' }}>None</span> : `${r.m.rating.toFixed(1)} / 5`}</td>
               <td style={td}><select value={r.e.rating} onChange={e => setEdit(p => ({ ...p, [r.t.id]: { ...p[r.t.id], rating: Number(e.target.value) } }))} style={{ ...inputStyle, width: 110 }}><option value={0}>Not rated</option>{[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} — {['', 'Poor', 'Needs work', 'Good', 'Very good', 'Excellent'][n]}</option>)}</select></td>

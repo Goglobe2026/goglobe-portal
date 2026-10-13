@@ -53,7 +53,7 @@ export function LoginGate() {
             className="btn rounded-full px-4"
             style={mode === 'ceo' ? { background: 'linear-gradient(135deg,var(--navy-light),var(--navy))', color: '#fff', borderColor: 'transparent' } : {}}
           >
-            CEO / Owner
+            Head Manager
           </button>
           <button
             onClick={() => { setMode('employee'); loadStaffNames(); }}
@@ -66,10 +66,10 @@ export function LoginGate() {
 
         {mode === 'ceo' ? (
           <>
-            <div className="font-display text-[17px] font-semibold mb-1">Owner sign-in</div>
+            <div className="font-display text-[17px] font-semibold mb-1">Head Manager sign-in</div>
             <div className="text-[12.5px] text-[var(--muted)] mb-4">Full access to every module, every employee&apos;s numbers, and finance.</div>
             <div className="mb-3 text-left">
-              <label>Owner PIN</label>
+              <label>Head Manager PIN</label>
               <input type="password" maxLength={8} value={pin} onChange={e => setPin(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && login()} placeholder="Enter PIN" />
             </div>
@@ -93,11 +93,11 @@ export function LoginGate() {
         )}
 
         <button className="btn btn-primary w-full" onClick={login}>
-          {mode === 'ceo' ? 'Enter CEO dashboard' : 'Enter my portal'}
+          {mode === 'ceo' ? 'Enter Head Manager dashboard' : 'Enter my portal'}
         </button>
 
         <div className="text-[11.5px] text-[var(--faint)] mt-4 text-left">
-          This is a session-protected login, not a public account system — PINs are set and reset by the CEO.
+          This is a session-protected login, not a public account system — PINs are set and reset by the Head Manager.
           Ask your manager if you don&apos;t know yours.
         </div>
         </div>

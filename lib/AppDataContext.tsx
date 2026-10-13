@@ -1,12 +1,71 @@
 'use client';
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, MonthlyClosing, PayrollCategory, PayRun, StaffAdvance, Complaint, StaffTarget, Appraisal, Announcement, DocRecord, Letter, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, MonthlyClosing, PayrollCategory, PayRun, StaffAdvance, Complaint, StaffTarget, Appraisal, Announcement, DocRecord, Letter, QcCheck, TeamMessage, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
+
+// ---------------------------------------------------------------------------
+// Saving and staying up to date
+//
+// Every list (leads, cases, ...) lives on the server. This hook keeps a copy in
+// the browser and, when someone edits, sends the change back safely:
+//   - each record that changed is stamped `_u` (time of the edit, in server
+//     time) and the ids that were removed are listed, so the server can merge
+//     with whatever other people changed instead of overwriting it;
+//   - saves for one list are sent one after another, never out of order;
+//   - every 15 seconds the browser asks which lists changed elsewhere and pulls
+//     them in, so a lead that arrived from the sheet shows up on its own.
+// ---------------------------------------------------------------------------
+const writeSeq: Record<string, number> = {};      // bumps on every local edit
+const inflight: Record<string, number> = {};      // saves currently on their way
+const lastWriteEnd: Record<string, number> = {};  // when the last save finished
+const chains: Record<string, Promise<unknown>> = {};
+let clockOffset = 0;                              // server time minus this device's time
+
+type Rec = { id: string; _u?: number };
+const hasIds = (a: unknown): a is Rec[] => Array.isArray(a) && a.every(x => x && typeof x === 'object' && typeof (x as Rec).id === 'string');
+
+function stampChanged<T>(prev: T, next: T): T {
+  if (!hasIds(prev) || !hasIds(next)) return next;
+  const before = new Map(prev.map(r => [r.id, r]));
+  const at = Date.now() + clockOffset;
+  let touched = false;
+  const out = next.map(item => {
+    const old = before.get(item.id);
+    if (old === item) return item;
+    if (old) {
+      const { _u: a, ...restOld } = old as Rec & Record<string, unknown>; void a;
+      const { _u: b, ...restNew } = item as Rec & Record<string, unknown>; void b;
+      if (JSON.stringify(restOld) === JSON.stringify(restNew)) return item;
+    }
+    touched = true;
+    return { ...item, _u: at };
+  });
+  return (touched ? out : next) as unknown as T;
+}
+
+function queueSave(key: string, prev: unknown, next: unknown) {
+  writeSeq[key] = (writeSeq[key] || 0) + 1;
+  let body: unknown = next;
+  if (hasIds(prev) && hasIds(next)) {
+    const nextIds = new Set(next.map(r => r.id));
+    body = { __merge: 1, items: next, deleted: prev.map(r => r.id).filter(id => !nextIds.has(id)) };
+  }
+  inflight[key] = (inflight[key] || 0) + 1;
+  const send = () => fetch(`/api/data/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => { /* surfaced globally via lastError */ });
+  chains[key] = (chains[key] || Promise.resolve()).then(send).finally(() => {
+    inflight[key]--;
+    lastWriteEnd[key] = Date.now();
+  });
+}
 
 function useSynced<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
@@ -14,12 +73,10 @@ function useSynced<T>(key: string, initial: T) {
 
   const setAndSave = useCallback((updater: Updater<T>) => {
     setValue(prev => {
-      const next = typeof updater === 'function' ? (updater as (p: T) => T)(prev) : updater;
-      fetch(`/api/data/${key}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      }).catch(() => { /* surfaced globally via lastError */ });
+      const raw = typeof updater === 'function' ? (updater as (p: T) => T)(prev) : updater;
+      if (raw === prev) return prev;
+      const next = stampChanged(prev, raw);
+      queueSave(key, prev, next);
       return next;
     });
   }, [key]);
@@ -67,12 +124,16 @@ interface AppDataContextValue {
   announcements: Announcement[]; setAnnouncements: (u: Updater<Announcement[]>) => void;
   docRegister: DocRecord[]; setDocRegister: (u: Updater<DocRecord[]>) => void;
   letters: Letter[]; setLetters: (u: Updater<Letter[]>) => void;
+  qcChecks: QcCheck[]; setQcChecks: (u: Updater<QcCheck[]>) => void;
+  messages: TeamMessage[]; setMessages: (u: Updater<TeamMessage[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
   sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
   revenueGoal: string; setRevenueGoal: (u: Updater<string>) => void;
 
   logActivity: (t: string) => void;
+  // Pull the newest copy of some lists from the server right now.
+  refresh: (lists?: CollectionName[]) => Promise<void>;
 }
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -81,7 +142,7 @@ const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances',
-  'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters',
+  'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'qcchecks', 'messages',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -123,10 +184,68 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const announcements = useSynced<Announcement[]>('announcements', []);
   const docRegister = useSynced<DocRecord[]>('docregister', []);
   const letters = useSynced<Letter[]>('letters', []);
+  const qcChecks = useSynced<QcCheck[]>('qcchecks', []);
+  const messages = useSynced<TeamMessage[]>('messages', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
   const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
   const revenueGoal = useSynced<string>('revenuegoal', '10000000');
+
+  // Every list the browser keeps a copy of, by the name the server uses.
+  const lists: Record<string, { setLocal: (u: any) => void }> = {
+    leads, cases, appointments, team, transactions, campaigns, attendance, ratecard: rateCard, adjustments,
+    bankaccounts: bankAccounts, journalvouchers: journalVouchers, requests, activity, testimonials,
+    referralagents: referralAgents, grouptours: groupTours, tourmembers: tourMembers, countrynotes: countryNotes,
+    loans, personalexpenses: personalExpenses, clientfeedback: clientFeedback, marketingmaterials: marketingMaterials,
+    followuptemplates: followUpTemplates, invoices, monthlyclosings: monthlyClosings, payrollcategories: payrollCategories,
+    payruns: payRuns, staffadvances: staffAdvances, complaints, stafftargets: staffTargets, appraisals, announcements,
+    docregister: docRegister, letters, qcchecks: qcChecks, messages,
+  };
+  const listsRef = useRef(lists);
+  listsRef.current = lists;
+  const lastVersion = useRef<Record<string, number>>({});
+  const pulling = useRef(false);
+
+  // Ask the server what changed and pull in those lists. Skips any list this
+  // person is in the middle of saving, and tries again on the next round.
+  const pullLists = useCallback(async (only?: string[], force = false) => {
+    if (pulling.current && !force) return;
+    pulling.current = true;
+    try {
+      const t0 = Date.now();
+      const vr = await fetch('/api/data/versions', { cache: 'no-store' });
+      if (!vr.ok) return;
+      const { now, versions } = await vr.json();
+      const rtt = Date.now() - t0;
+      if (rtt < 4000 && typeof now === 'number') clockOffset = now - (t0 + rtt / 2);
+      for (const k of Object.keys(listsRef.current)) {
+        if (only && !only.includes(k)) continue;
+        const v = versions[k];
+        if (v === undefined) continue;
+        if (!force && lastVersion.current[k] === v) continue;
+        const startedAt = Date.now();
+        const seq = writeSeq[k] || 0;
+        const r = await fetch(`/api/data/${k}`, { cache: 'no-store' });
+        if (!r.ok) continue;
+        const data = await r.json();
+        if ((writeSeq[k] || 0) !== seq || (inflight[k] || 0) > 0 || (lastWriteEnd[k] || 0) >= startedAt) continue;
+        lastVersion.current[k] = v;
+        listsRef.current[k].setLocal((prev: unknown) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
+      }
+    } catch { /* offline for a moment — the next round will catch up */ } finally {
+      pulling.current = false;
+    }
+  }, []);
+
+  const refresh = useCallback((names?: CollectionName[]) => pullLists(names as string[] | undefined, true), [pullLists]);
+
+  useEffect(() => {
+    if (!session) return;
+    const tick = () => { if (document.visibilityState === 'visible') pullLists(); };
+    const id = setInterval(tick, 15000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
+  }, [session, pullLists]);
 
   const logActivity = useCallback((t: string) => {
     activity.setAndSave(prev => [{ t, at: new Date().toISOString() }, ...prev].slice(0, 8));
@@ -140,6 +259,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         const sJson = await sRes.json();
         setSession(sJson.session);
         if (!sJson.session) { setLoading(false); return; }
+
+        // Note what the server has right now, before downloading anything, so
+        // a change that lands while we load is picked up by the next refresh.
+        try {
+          const t0 = Date.now();
+          const vr = await fetch('/api/data/versions', { cache: 'no-store' });
+          if (vr.ok) {
+            const vj = await vr.json();
+            lastVersion.current = vj.versions || {};
+            const rtt = Date.now() - t0;
+            if (rtt < 4000 && typeof vj.now === 'number') clockOffset = vj.now - (t0 + rtt / 2);
+          }
+        } catch { /* not fatal */ }
 
         const results = await Promise.all(
           [...COLLECTION_KEYS, 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'].map(k =>
@@ -155,7 +287,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, mcl, pcat, prun, sadv, cpl, stg, apr, ann, dreg, ltr, pin, goal, pb, ssu] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, mcl, pcat, prun, sadv, cpl, stg, apr, ann, dreg, ltr, qcc, msg, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
@@ -167,6 +299,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         payRuns.setLocal(prun || []); staffAdvances.setLocal(sadv || []);
         complaints.setLocal(cpl || []); staffTargets.setLocal(stg || []); appraisals.setLocal(apr || []);
         announcements.setLocal(ann || []); docRegister.setLocal(dreg || []); letters.setLocal(ltr || []);
+        qcChecks.setLocal(qcc || []); messages.setLocal(msg || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
         sheetSyncUrl.setLocal(typeof ssu === 'string' ? ssu : '');
@@ -217,11 +350,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     announcements: announcements.value, setAnnouncements: announcements.setAndSave,
     docRegister: docRegister.value, setDocRegister: docRegister.setAndSave,
     letters: letters.value, setLetters: letters.setAndSave,
+    qcChecks: qcChecks.value, setQcChecks: qcChecks.setAndSave,
+    messages: messages.value, setMessages: messages.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
     sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,
     revenueGoal: revenueGoal.value, setRevenueGoal: revenueGoal.setAndSave,
-    logActivity,
+    logActivity, refresh,
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

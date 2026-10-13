@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readCollection, writeCollection, readRaw } from '@/lib/store';
+import { updateCollectionSync, readRaw } from '@/lib/store';
 import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 import { parseCsv } from '@/lib/csv';
-import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
+import { buildLeadsFromRows, sheetCsvUrl } from '@/lib/leadImport';
 import { today } from '@/lib/constants';
+import { ensureCampaignsFor } from '@/lib/campaignAuto';
 import type { Lead } from '@/lib/types';
 
-function normalizePhoneForDupeCheck(p: string) {
-  return (p || '').replace(/[^0-9]/g, '').replace(/^92/, '0');
+interface SheetResult { label: string; rows: number; imported: number; duplicates: number; incomplete: number; tooOld: number; error?: string }
+
+function daysAgo(n: number) {
+  const d = new Date(Date.now() - n * 86400000);
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 }
 
 export async function POST(req: NextRequest) {
@@ -15,71 +19,72 @@ export async function POST(req: NextRequest) {
   const session = verifySessionToken(token);
   if (!session) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
 
-  const url = readRaw('sheetsyncurl', '');
-  if (!url) return NextResponse.json({ error: 'No sheet link has been set up yet' }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+  const sinceDays = Number(body?.sinceDays);
+  const sinceDate = Number.isFinite(sinceDays) && sinceDays > 0 ? daysAgo(sinceDays) : undefined;
 
-  let csvText: string;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return NextResponse.json({ error: `Couldn't reach that sheet (HTTP ${res.status}) — check the link is still set to "Anyone with the link"` }, { status: 502 });
-    csvText = await res.text();
-  } catch {
-    return NextResponse.json({ error: "Couldn't reach that sheet — check the link is correct and published" }, { status: 502 });
-  }
+  // One link per line — you can keep the UK ad sheet and an older sheet side by side.
+  const links = readRaw('sheetsyncurl', '').split(/\s*\n\s*/).map(s => s.trim()).filter(Boolean);
+  if (!links.length) return NextResponse.json({ error: 'No sheet link has been set up yet' }, { status: 400 });
 
-  const { headers, rows } = parseCsv(csvText);
-  if (!headers.length) return NextResponse.json({ error: 'That link didn\'t return any readable data' }, { status: 400 });
+  const base = process.env.SHEETS_TEST_BASE || 'https://docs.google.com';
+  const sheets: SheetResult[] = [];
 
-  const mapping = guessColumnMapping(headers);
-  const nameIdx = mapping.name ? headers.indexOf(mapping.name) : -1;
-  const phoneIdx = mapping.phone ? headers.indexOf(mapping.phone) : -1;
-  if (nameIdx === -1 || phoneIdx === -1) {
-    return NextResponse.json({ error: "Couldn't find a name or phone column in that sheet — check the column headers match what's expected" }, { status: 400 });
-  }
-  const emailIdx = mapping.email ? headers.indexOf(mapping.email) : -1;
-  const destIdx = mapping.destination ? headers.indexOf(mapping.destination) : -1;
-  const platformIdx = mapping.platform ? headers.indexOf(mapping.platform) : -1;
-  const campaignIdx = mapping.campaign ? headers.indexOf(mapping.campaign) : -1;
-  const cityIdx = mapping.city ? headers.indexOf(mapping.city) : -1;
-  const createdTimeIdx = mapping.createdTime ? headers.indexOf(mapping.createdTime) : -1;
+  for (const link of links) {
+    const result: SheetResult = { label: link.slice(0, 60), rows: 0, imported: 0, duplicates: 0, incomplete: 0, tooOld: 0 };
+    sheets.push(result);
 
-  const existingLeads = readCollection('leads') as Lead[];
-  const seenPhones = new Set(existingLeads.map(l => normalizePhoneForDupeCheck(l.phone)));
+    const conv = sheetCsvUrl(link, base);
+    if (!conv.url) { result.error = conv.error || 'Not a usable link'; continue; }
 
-  const newLeads: Lead[] = [];
-  let duplicates = 0, incomplete = 0;
-  const todayStr = today();
+    let csvText = '';
+    try {
+      const res = await fetch(conv.url, { signal: AbortSignal.timeout(25000) });
+      if (!res.ok) {
+        result.error = res.status === 404 || res.status === 400
+          ? "Google couldn't find that sheet or tab — check the link is complete."
+          : `Couldn't reach that sheet (HTTP ${res.status}).`;
+        continue;
+      }
+      csvText = await res.text();
+    } catch {
+      result.error = "Couldn't reach that sheet — check the link is correct.";
+      continue;
+    }
 
-  for (const row of rows) {
-    const name = row[nameIdx]?.trim();
-    const rawPhone = normalizeImportPhone(row[phoneIdx] || '');
-    if (!name || !rawPhone) { incomplete++; continue; }
-    const normalized = normalizePhoneForDupeCheck(rawPhone);
-    if (seenPhones.has(normalized)) { duplicates++; continue; }
-    seenPhones.add(normalized);
+    // A private sheet answers with a Google sign-in web page, not data.
+    if (/^\s*<(!doctype|html)/i.test(csvText)) {
+      result.error = 'Google is asking for a sign-in — open the sheet, press Share, and under General access choose "Anyone with the link" (Viewer). Then sync again.';
+      continue;
+    }
 
-    const noteParts: string[] = [];
-    if (emailIdx > -1 && row[emailIdx]) noteParts.push(`Email: ${row[emailIdx]}`);
-    if (cityIdx > -1 && row[cityIdx]) noteParts.push(`City: ${row[cityIdx]}`);
+    const { headers, rows } = parseCsv(csvText);
+    if (!headers.length) { result.error = "That link didn't return any readable data."; continue; }
+    result.rows = rows.length;
 
-    const realCreatedAt = createdTimeIdx > -1 ? extractDateOnly(row[createdTimeIdx], todayStr) : todayStr;
+    // Name the sheet after its form ("UK form") when it has one.
+    const formCol = headers.findIndex(h => h.trim().toLowerCase() === 'form_name');
+    const formName = formCol > -1 ? (rows.find(r => (r[formCol] || '').trim())?.[formCol] || '').trim() : '';
+    if (formName) result.label = formName;
 
-    newLeads.push({
-      id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-      name, phone: rawPhone,
-      source: platformIdx > -1 ? normalizePlatformSource(row[platformIdx]) : 'Website',
-      campaign: campaignIdx > -1 ? (row[campaignIdx] || '') : '',
-      destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
-      visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
-      notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
-      escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
-      interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
+    let fresh: Lead[] = [];
+    updateCollectionSync('leads', current => {
+      const built = buildLeadsFromRows(headers, rows, { existing: current, todayStr: today(), sinceDate });
+      if (built.error) { result.error = built.error; return current; }
+      result.imported = built.leads.length; result.duplicates = built.duplicates; result.incomplete = built.incomplete; result.tooOld = built.tooOld;
+      fresh = built.leads;
+      return built.leads.length ? [...current, ...built.leads] : current;
     });
+    ensureCampaignsFor(fresh);
   }
 
-  if (newLeads.length) {
-    await writeCollection('leads', [...existingLeads, ...newLeads]);
+  if (sheets.every(s => s.error)) {
+    return NextResponse.json({ error: sheets[0].error, sheets }, { status: sheets[0].error?.startsWith('Google is asking') ? 403 : 502 });
   }
 
-  return NextResponse.json({ ok: true, imported: newLeads.length, duplicates, incomplete, totalRowsInSheet: rows.length });
+  const sum = (k: 'imported' | 'duplicates' | 'incomplete' | 'tooOld' | 'rows') => sheets.reduce((n, s) => n + s[k], 0);
+  return NextResponse.json({
+    ok: true, imported: sum('imported'), duplicates: sum('duplicates'), incomplete: sum('incomplete'),
+    tooOld: sum('tooOld'), totalRowsInSheet: sum('rows'), sheets,
+  });
 }

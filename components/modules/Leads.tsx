@@ -3,11 +3,12 @@ import { useState, useMemo, useEffect } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
 import { exportToCsv, parseCsv } from '@/lib/csv';
-import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, extractDateOnly } from '@/lib/leadImport';
+import { campaignStatus, matchesCampaignName } from '@/lib/campaigns';
+import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, buildLeadsFromRows } from '@/lib/leadImport';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { Lead, FollowUpTemplate } from '@/lib/types';
+import type { Lead, FollowUpTemplate, Campaign } from '@/lib/types';
 
 function waLink(phone: string, text: string) {
   const digits = (phone || '').replace(/[^0-9]/g, '').replace(/^0/, '92');
@@ -444,7 +445,7 @@ function WhatsAppQueue({ leads, onClose }: { leads: Lead[]; onClose: () => void 
         <div className="font-display font-semibold text-lg">{current.name}</div>
         <div className="text-[var(--muted)] text-sm mt-1">{current.destination} · {current.visaType} · {current.stage}</div>
         <div className="font-mono-ui text-sm mt-1">{current.phone}</div>
-        {current.notes && <div className="text-sm mt-3 italic text-[var(--muted)]">&quot;{current.notes}&quot;</div>}
+        {current.notes && <div className="text-sm mt-3 text-[var(--muted)]" style={{ whiteSpace: 'pre-line' }}>{current.notes}</div>}
       </div>
       <a
         className="btn btn-primary w-full mb-3 text-center block"
@@ -544,7 +545,7 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
         <Field label="Campaign (if any)">
           <select value={campaign} onChange={e => setCampaign(e.target.value)}>
             <option value="">— None —</option>
-            {campaigns.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {campaigns.filter((c: any) => campaignStatus(c) !== 'Closed').map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
         </Field>
       </div>
@@ -597,6 +598,12 @@ function MessageLog({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   return (
     <>
       <ModalTitle>Message log — {lead.name}</ModalTitle>
+      {current.notes && (
+        <div className="card mb-3.5" style={{ background: 'var(--navy-50)', padding: '10px 14px' }}>
+          <div className="text-[11px] uppercase tracking-wide font-semibold text-[var(--muted)] mb-1">What they told us on the form</div>
+          <div className="text-[13px] leading-relaxed" style={{ whiteSpace: 'pre-line' }}>{current.notes}</div>
+        </div>
+      )}
       <div className="max-h-64 overflow-auto mb-3.5">
         {current.messages.length ? current.messages.map((m, i) => (
           <div key={i} className="flex gap-2.5 py-2 border-b last:border-0 items-start" style={{ borderColor: 'var(--line)' }}>
@@ -808,13 +815,14 @@ const IMPORT_FIELDS: { key: string; label: string; required: boolean }[] = [
 ];
 
 function ImportLeadsForm({ onClose }: { onClose: () => void }) {
-  const { leads, setLeads } = useAppData();
+  const { leads, setLeads, campaigns, setCampaigns } = useAppData();
   const toast = useToast();
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number } | null>(null);
+  const [sinceDays, setSinceDays] = useState(0);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number; tooOld: number } | null>(null);
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -838,49 +846,24 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
   }
 
   function runImport() {
-    const nameIdx = colIndex('name');
-    const phoneIdx = colIndex('phone');
-    if (nameIdx === -1 || phoneIdx === -1) { toast('Map at least Name and Phone before importing'); return; }
-
-    const emailIdx = colIndex('email');
-    const destIdx = colIndex('destination');
-    const platformIdx = colIndex('platform');
-    const campaignIdx = colIndex('campaign');
-    const cityIdx = colIndex('city');
-    const createdTimeIdx = colIndex('createdTime');
-
-    const existingPhones = new Set(leads.map((l: Lead) => normalizePhone(l.phone)));
-    const newLeads: Lead[] = [];
-    let duplicates = 0, incomplete = 0;
-    const todayStr = today();
-
-    for (const row of rows) {
-      const name = row[nameIdx]?.trim();
-      const rawPhone = normalizeImportPhone(row[phoneIdx] || '');
-      if (!name || !rawPhone) { incomplete++; continue; }
-      if (existingPhones.has(normalizePhone(rawPhone))) { duplicates++; continue; }
-
-      const noteParts: string[] = [];
-      if (emailIdx > -1 && row[emailIdx]) noteParts.push(`Email: ${row[emailIdx]}`);
-      if (cityIdx > -1 && row[cityIdx]) noteParts.push(`City: ${row[cityIdx]}`);
-
-      const realCreatedAt = createdTimeIdx > -1 ? extractDateOnly(row[createdTimeIdx], todayStr) : todayStr;
-
-      newLeads.push({
-        id: genId('ld'), name, phone: rawPhone,
-        source: platformIdx > -1 ? normalizePlatformSource(row[platformIdx]) : 'Website',
-        campaign: campaignIdx > -1 ? (row[campaignIdx] || '') : '',
-        destination: destIdx > -1 ? normalizeCountry(row[destIdx]) : '',
-        visaType: '', stage: 'New', assignedTo: '', createdAt: realCreatedAt,
-        notes: noteParts.join(' · '), messages: [], nextFollowUp: todayStr, lastContacted: '',
-        escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
-        interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
-      });
-      existingPhones.add(normalizePhone(rawPhone)); // guard against duplicates within the file itself
+    if (colIndex('name') === -1 || colIndex('phone') === -1) { toast('Map at least Name and Phone before importing'); return; }
+    const built = buildLeadsFromRows(headers, rows, {
+      existing: leads, todayStr: today(), mapping,
+      sinceDate: sinceDays ? new Date(Date.now() - sinceDays * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' }) : undefined,
+    });
+    if (built.error) { toast(built.error); return; }
+    if (built.leads.length) {
+      setLeads((prev: Lead[]) => [...prev, ...built.leads]);
+      // Campaign names the portal hasn't seen yet become Running campaigns, ready for a budget.
+      const fresh: Campaign[] = [];
+      for (const l of built.leads) {
+        const nm = (l.campaign || '').trim();
+        if (!nm || [...campaigns, ...fresh].some(c => matchesCampaignName(c, nm))) continue;
+        fresh.push({ id: genId('cp'), name: nm, platform: /insta/i.test(l.source) ? 'Instagram' : 'Facebook', spend: 0, startDate: l.createdAt, status: 'Running', spends: [], autoCreated: true });
+      }
+      if (fresh.length) setCampaigns((prev: Campaign[]) => [...prev, ...fresh]);
     }
-
-    if (newLeads.length) setLeads((prev: Lead[]) => [...prev, ...newLeads]);
-    setResult({ imported: newLeads.length, duplicates, incomplete });
+    setResult({ imported: built.leads.length, duplicates: built.duplicates, incomplete: built.incomplete, tooOld: built.tooOld });
   }
 
   return (
@@ -910,6 +893,16 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
             ))}
           </div>
 
+          <Field label="Which leads to bring in">
+            <select value={sinceDays} onChange={e => setSinceDays(Number(e.target.value))}>
+              <option value={0}>All of them</option>
+              <option value={7}>Only the last 7 days</option>
+              <option value={14}>Only the last 14 days</option>
+              <option value={30}>Only the last 30 days</option>
+              <option value={60}>Only the last 60 days</option>
+            </select>
+          </Field>
+
           {rows.length > 0 && (
             <div className="mb-4">
               <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)] mb-2">Preview — first 3 rows</div>
@@ -937,6 +930,7 @@ function ImportLeadsForm({ onClose }: { onClose: () => void }) {
                 Imported {result.imported} new lead{result.imported === 1 ? '' : 's'}.
                 {result.duplicates > 0 && ` Skipped ${result.duplicates} — already existed (matching phone number).`}
                 {result.incomplete > 0 && ` Skipped ${result.incomplete} — missing a name or phone number.`}
+                {result.tooOld > 0 && ` Skipped ${result.tooOld} — older than the date range you chose.`}
               </div>
             </div>
           )}
@@ -1051,27 +1045,37 @@ function SendMaterialsForm({ leadId, onClose }: { leadId: string; onClose: () =>
   );
 }
 
+type SheetOutcome = { label: string; rows: number; imported: number; duplicates: number; incomplete: number; tooOld: number; error?: string };
+
 function SheetSyncForm({ onClose }: { onClose: () => void }) {
-  const { sheetSyncUrl, setSheetSyncUrl } = useAppData();
+  const { sheetSyncUrl, setSheetSyncUrl, refresh } = useAppData();
   const toast = useToast();
   const [url, setUrl] = useState(sheetSyncUrl);
+  const [sinceDays, setSinceDays] = useState(30);
   const [syncing, setSyncing] = useState(false);
-  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number } | { error: string } | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; incomplete: number; tooOld: number; sheets: SheetOutcome[] } | { error: string; sheets?: SheetOutcome[] } | null>(null);
 
   function save() {
     setSheetSyncUrl(url.trim());
-    toast('Link saved');
+    toast('Links saved');
   }
 
   async function syncNow() {
-    if (!url.trim()) { toast('Paste and save your published sheet link first'); return; }
+    if (!url.trim()) { toast('Paste your sheet link first'); return; }
+    if (url.trim() !== sheetSyncUrl.trim()) setSheetSyncUrl(url.trim());
     setSyncing(true);
     setResult(null);
     try {
-      const res = await fetch('/api/sync-sheet', { method: 'POST' });
+      // Give the save a moment to reach the server before it reads the link.
+      await new Promise(r => setTimeout(r, 400));
+      const res = await fetch('/api/sync-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sinceDays }) });
       const data = await res.json();
-      if (!res.ok) setResult({ error: data.error || 'Something went wrong' });
-      else setResult(data);
+      if (!res.ok) setResult({ error: data.error || 'Something went wrong', sheets: data.sheets });
+      else {
+        setResult(data);
+        // Bring the new leads onto this screen right away.
+        await refresh(['leads']);
+      }
     } catch {
       setResult({ error: 'Could not reach the server' });
     } finally {
@@ -1079,16 +1083,32 @@ function SheetSyncForm({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const outcomes = result?.sheets || [];
+
   return (
     <>
       <ModalTitle>Sync leads from Google Sheet</ModalTitle>
       <div className="text-[12.5px] text-[var(--muted)] mb-3 leading-relaxed">
-        One-time setup in Google Sheets: <b>File → Share → Publish to web</b> → choose the sheet with your leads → set format to <b>Comma-separated values (.csv)</b> → click Publish. Paste the link it gives you below.
+        Paste the link of each lead sheet — <b>one link per line</b> (for example your UK ad sheet and your older Schengen sheet). Copy it from the address bar while the right tab is open. The sheet must be shared as <b>Share → General access → Anyone with the link → Viewer</b>. A &ldquo;Publish to web&rdquo; CSV link works too.
       </div>
-      <Field label="Published sheet link">
-        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv" />
+      <Field label="Sheet links (one per line)">
+        <textarea rows={3} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…" style={{ fontFamily: 'var(--font-plex-mono), monospace', fontSize: 12 }} />
       </Field>
-      <button className="btn btn-sm mb-4" onClick={save}>Save link</button>
+      <div className="flex items-end gap-3 mb-4">
+        <div style={{ flex: 1 }}>
+          <Field label="Which leads to bring in">
+            <select value={sinceDays} onChange={e => setSinceDays(Number(e.target.value))}>
+              <option value={7}>Only the last 7 days</option>
+              <option value={14}>Only the last 14 days</option>
+              <option value={30}>Only the last 30 days</option>
+              <option value={60}>Only the last 60 days</option>
+              <option value={0}>Everything in the sheet</option>
+            </select>
+          </Field>
+        </div>
+        <button className="btn btn-sm mb-3" onClick={save}>Save links</button>
+      </div>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-4">Leads already in the portal are never added twice — they are matched by the Facebook lead id and by phone number — so you can sync as often as you like.</div>
 
       {result && 'error' in result && (
         <div className="card mb-4" style={{ background: 'var(--red-50)' }}>
@@ -1098,12 +1118,23 @@ function SheetSyncForm({ onClose }: { onClose: () => void }) {
       {result && 'imported' in result && (
         <div className="card mb-4" style={{ background: 'var(--green-50)' }}>
           <div className="text-[13px] font-medium" style={{ color: 'var(--green)' }}>
-            Imported {result.imported} new lead{result.imported === 1 ? '' : 's'}.
-            {result.duplicates > 0 && ` Skipped ${result.duplicates} already in the system.`}
-            {result.incomplete > 0 && ` Skipped ${result.incomplete} missing a name or phone.`}
+            Added {result.imported} new lead{result.imported === 1 ? '' : 's'}.
+            {result.duplicates > 0 && ` ${result.duplicates} already in the portal.`}
+            {result.tooOld > 0 && ` ${result.tooOld} older than ${sinceDays} days skipped.`}
+            {result.incomplete > 0 && ` ${result.incomplete} missing a name or phone.`}
           </div>
         </div>
       )}
+      {outcomes.length > 1 || (outcomes.length === 1 && outcomes[0].error && !('error' in (result || {}))) ? (
+        <div className="mb-4">
+          {outcomes.map((o, i) => (
+            <div key={i} className="text-[12.5px] py-1.5 border-b last:border-0" style={{ borderColor: 'var(--line)' }}>
+              <b>{o.label}</b>{' — '}
+              {o.error ? <span style={{ color: 'var(--red)' }}>{o.error}</span> : <span className="text-[var(--muted)]">{o.imported} added · {o.duplicates} already there{o.tooOld ? ` · ${o.tooOld} too old` : ''} · {o.rows} rows</span>}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <ModalFoot>
         <button className="btn" onClick={onClose}>Close</button>
