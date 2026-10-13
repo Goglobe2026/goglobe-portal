@@ -36,6 +36,7 @@ const TITLES: Record<string, [string, string]> = {
   reports: ['Reports & Finance', 'Weekly comparison, monthly trend, bank balances, expenses and journal vouchers'],
   pricing: ['Pricing by country', 'Consultation, visa service and appointment fees'],
   'grp-quality': ['Quality & Team', 'Check files before they go out, and talk to your team privately'],
+  dailyreport: ['Daily Report', 'The whole business in one WhatsApp message — sent to you automatically every day'],
   qc: ['Quality Control', 'Check every file before it is submitted — nothing goes out with a missing step'],
   messages: ['Team Messages', 'Private one-to-one messages — only the two people in a chat can read it'],
   myportal: ['My Portal', 'Your own attendance, cases and earnings'],
@@ -119,6 +120,7 @@ export function Shell({
           {isCeo ? (
             <>
               <SideLink id="dashboard" label="Dashboard" active={currentTab === 'dashboard'} collapsed={collapsed} onClick={() => onTabChange('dashboard')} />
+              {session?.type === 'ceo' && <SideLink id="dailyreport" label="Daily Report" active={currentTab === 'dailyreport'} collapsed={collapsed} onClick={() => onTabChange('dailyreport')} />}
               {sections.map(sec => (
                 <div key={sec.id}>
                   {collapsed

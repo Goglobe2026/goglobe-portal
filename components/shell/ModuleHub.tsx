@@ -1,6 +1,7 @@
 'use client';
 import { NAV_GROUPS } from '@/lib/navGroups';
 import type { ReactElement } from 'react';
+import { useAppData } from '@/lib/AppDataContext';
 
 // One consistent icon per group, all drawn in the same navy, so visual
 // distinction comes from iconography, not from a wall of dark color —
@@ -8,6 +9,9 @@ import type { ReactElement } from 'react';
 const ICONS: Record<string, ReactElement> = {
   dashboard: (
     <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  dailyreport: (
+    <path d="M4 5h16v11H9l-5 4V5zM8 9.5l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
   ),
   'grp-marketing': (
     <path d="M3 11v2a1 1 0 001 1h2l4 4V6L6 10H4a1 1 0 00-1 1zM14 8a4 4 0 010 8M17 5a8 8 0 010 14" strokeLinecap="round" strokeLinejoin="round" />
@@ -30,10 +34,13 @@ const ICONS: Record<string, ReactElement> = {
 };
 
 export function ModuleHub({ onOpen }: { onOpen: (id: string) => void }) {
+  const { session } = useAppData();
+  // The daily report carries the firm's money and the WhatsApp connection — Head Manager only.
+  const groups = NAV_GROUPS.filter(g => g.id !== 'dailyreport' || session?.type === 'ceo');
   return (
     <div>
       <div className="grid grid-cols-3 gap-5 max-md:grid-cols-2">
-        {NAV_GROUPS.map(g => (
+        {groups.map(g => (
           <button key={g.id} onClick={() => onOpen(g.id)}
             className="group text-left rounded-2xl p-7 bg-white transition-all hover:-translate-y-0.5"
             style={{

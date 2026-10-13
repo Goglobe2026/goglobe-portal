@@ -10,6 +10,7 @@ import type { ReactElement } from 'react';
 // you go one level deeper.
 export const TILE_ICONS: Record<string, ReactElement> = {
   qc: <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3zM9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
+  dailyreport: <path d="M4 5h16v11H9l-5 4V5zM8 9.5l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />,
   messages: <path d="M4 5h16v11H9l-5 4V5zM8 10h8M8 13h5" strokeLinecap="round" strokeLinejoin="round" />,
   grouptours: <path d="M21 16v-2l-8-5V4.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V18l-2.5 2v1.5l4-1 4 1V20l-2.5-2v-4.5l8 2.5z" strokeLinecap="round" strokeLinejoin="round" />,
   dashboard: <path d="M4 19V11M11 19V5M18 19V13" strokeLinecap="round" strokeLinejoin="round" />,

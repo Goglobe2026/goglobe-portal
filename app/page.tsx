@@ -27,6 +27,7 @@ import { GroupTours } from '@/components/modules/GroupTours';
 import { MyPortal } from '@/components/modules/MyPortal';
 import { QualityControl } from '@/components/modules/QualityControl';
 import { TeamMessages } from '@/components/modules/TeamMessages';
+import { DailyReport } from '@/components/modules/DailyReport';
 import { ModuleHub } from '@/components/shell/ModuleHub';
 import { GroupDashboard } from '@/components/shell/GroupDashboard';
 import { NAV_GROUPS, isGroupHub } from '@/lib/navGroups';
@@ -105,6 +106,7 @@ function PortalApp() {
       {tab === 'grouptours' && <GroupTours />}
       {tab === 'qc' && <QualityControl />}
       {tab === 'messages' && <TeamMessages />}
+      {tab === 'dailyreport' && <DailyReport />}
     </Shell>
   );
 }

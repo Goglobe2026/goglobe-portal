@@ -125,6 +125,27 @@ screen refreshes itself every few seconds with other people's changes.
   received, so even an admin cannot read someone else's chat, and no one can
   write a message in another person's name. Employees chat from *My Portal*.
 
+## Daily report on WhatsApp
+
+Every evening the Head Manager receives one WhatsApp message with the whole business: new leads and where they came from, follow-ups due and overdue, cases closed, money in and out, ad spend against budget, who is present / late / absent, and a "needs your attention" list (overdue salaries, month closing due, escalated leads, overdue client balances, missed appointments, over-budget campaigns, files failing quality control).
+
+Open **Daily Report** in the sidebar (Head Manager only). It has four tabs: **Report** (today's report as it will look on WhatsApp, any date, *Send now*), **Settings**, **Setup guide** and **History**.
+
+**Default:** off until you finish the setup and tick *Send the daily report automatically*. Then it is sent at **8:00 PM Pakistan time**, covering that same day. You can change the time, or choose a morning report about the day before.
+
+**How it is sent** — pick one under Settings:
+
+* **WhatsApp Business (official, recommended).** One-time setup in Meta's developer site (about 30 minutes): create an app with the WhatsApp product, copy the *Phone number ID*, create a permanent token with a System User, and create one *Utility* message template (the exact text is on the Setup guide tab, ready to copy). Paste the ID and token into Settings. Meta bills business-started template messages per message; one a day is small.
+* **CallMeBot (free).** A free third-party hobby service. Fine to try, but its server sees your report; use the official option for real figures.
+
+**Where the token lives.** Saved on the server disk and never sent to the browser again, not even to the Head Manager (only its last four characters are shown). To keep it out of the portal's data completely, set `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` in Render's Environment tab; they then win over anything saved on the page.
+
+**If something fails** (wrong token, number not allowed, template not approved…) the page says why in plain words and tries again every 10 minutes, up to 3 times a day, sending only to the numbers that have not received it yet. A number that already got today's report never gets a second copy. If the server was off at 8 PM, the report goes out as soon as it is back, the same day.
+
+**Render and sleeping.** The sender runs inside the portal and checks the clock every minute. A paid Render service (the portal needs one anyway for its persistent disk) stays awake. If your plan ever lets it sleep, use the *Backup start link* at the bottom of Settings: add it to a free cron website (for example cron-job.org) every 5 minutes. It does nothing unless the report is due.
+
+**Optional settings** (environment variables): `REPORT_TICK_MS` (how often the clock is checked, default 60000), `WHATSAPP_API_BASE` and `CALLMEBOT_BASE` (only for testing against a stand-in server).
+
 ## Running it locally
 
 ```bash

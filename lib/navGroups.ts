@@ -10,6 +10,7 @@ export type NavGroup =
 
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'dashboard', label: 'Dashboard', standalone: true, blurb: 'Business status across every country, at a glance' },
+  { id: 'dailyreport', label: 'Daily Report', standalone: true, blurb: 'Your whole business in one WhatsApp message, every evening' },
   {
     id: 'grp-marketing', label: 'Marketing', blurb: 'Leads, campaigns, and everything that brings clients in',
     tiles: [

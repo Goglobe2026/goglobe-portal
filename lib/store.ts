@@ -152,3 +152,18 @@ export function writeRaw(key: string, value: string): Promise<void> {
   writeQueues[key] = next.catch(() => {});
   return next;
 }
+
+
+// Small JSON settings files (not lists of records), e.g. the WhatsApp report
+// settings. Written in one step so a crash can't leave half a file.
+export function readJsonFile<T>(name: string, fallback: T): T {
+  const fp = filePath(name);
+  if (!fs.existsSync(fp)) return fallback;
+  try { return JSON.parse(fs.readFileSync(fp, 'utf8')) as T; } catch { return fallback; }
+}
+
+export function writeJsonFile(name: string, value: unknown): void {
+  const fp = filePath(name);
+  fs.writeFileSync(`${fp}.tmp`, JSON.stringify(value, null, 2));
+  fs.renameSync(`${fp}.tmp`, fp);
+}

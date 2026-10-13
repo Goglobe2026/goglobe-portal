@@ -282,6 +282,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
               // Only a genuine failure (500, network drop, etc.) should stop
               // the whole thing from loading.
               if (r.status === 403) return null;
+              // A 404 here means the website pages are newer than the server files
+              // (a partly uploaded update). Say so in plain words.
+              if (r.status === 404) throw new Error(`The live site is running a mix of old and new files — the server does not know “${k}” yet. Upload ALL the files from the latest zip to GitHub together (do not pick files one by one), wait for Render to redeploy, then refresh this page. Your data is safe.`);
               if (!r.ok) throw new Error(`${k}: ${r.status}`);
               return r.json();
             })
