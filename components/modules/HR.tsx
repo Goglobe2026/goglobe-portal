@@ -1,0 +1,548 @@
+'use client';
+import { useState } from 'react';
+import { useAppData } from '@/lib/AppDataContext';
+import { money, fmtDate, genId, today, DEPARTMENTS, JOB_DESCRIPTIONS } from '@/lib/constants';
+import { overallPaid } from './Cases';
+import { closerOf, casesClosedBy, collectedFor, dueCaseBonuses } from '@/lib/finance';
+import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
+import { useToast } from '@/components/ui/Toast';
+import type { TeamMember } from '@/lib/types';
+import { PayslipHistory } from './Payroll';
+import { PerfPanel } from './PerfWatch';
+import { usePerfWatch } from '@/lib/usePerfWatch';
+import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+
+export function HR() {
+  const { perf } = usePerfWatch();
+  const { team, requests, setRequests, cases, leads, transactions, attendance, setAttendance, clientFeedback, setClientFeedback, logActivity } = useAppData();
+  const [formStaff, setFormStaff] = useState<TeamMember | 'new' | null>(null);
+  const [pinReveal, setPinReveal] = useState<{ name: string; pin: string } | null>(null);
+  const [adjustFor, setAdjustFor] = useState<{ staff: TeamMember; type: 'Bonus' | 'Fine' } | null>(null);
+  const toast = useToast();
+
+  function approveRequest(r: typeof requests[0]) {
+    const emp = team.find(t => t.id === r.staffId);
+    setRequests(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Approved' } : x));
+    logActivity(`Approved request from ${emp?.name} (${r.type})`);
+    // For approved leave with dates, mark each day so it doesn't look like an
+    // unexplained absence — a day covered here is never flagged for a fine.
+    if (r.type === 'Leave' && r.leaveStartDate && r.leaveEndDate) {
+      const start = new Date(r.leaveStartDate);
+      const end = new Date(r.leaveEndDate);
+      const newEntries: typeof attendance = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().slice(0, 10);
+        const already = attendance.find(a => a.staffId === r.staffId && a.date === dateStr);
+        if (!already) {
+          newEntries.push({ id: genId('at'), staffId: r.staffId, date: dateStr, checkIn: '', checkOut: '', onApprovedLeave: true });
+        }
+      }
+      if (newEntries.length) {
+        setAttendance(prev => [...prev, ...newEntries]);
+        toast(`Approved — marked ${newEntries.length} day(s) as on leave`);
+      }
+    }
+  }
+
+  const depts = DEPARTMENTS.filter(d => team.some(t => t.department === d));
+  const sales = team.filter(t => t.department === 'Sales');
+
+  function resetPin(t: TeamMember) {
+    const newPin = String(Math.floor(1000 + Math.random() * 9000));
+    // caller wires this via context below
+    return newPin;
+  }
+
+  return (
+    <div>
+      <SectionHead title="Employee list" count={`${team.length} staff across ${depts.length} departments`} action={
+        <button className="btn btn-primary ml-auto" onClick={() => setFormStaff('new')}>+ Add employee</button>
+      } />
+      <div className="card p-0 overflow-auto">
+        <table>
+          <thead><tr><th>Name</th><th>Post / designation</th><th>Department</th><th>Category</th><th>Watch</th><th>Contract</th><th>Contact</th><th>PIN</th><th></th></tr></thead>
+          <tbody>
+            {team.map(t => (
+              <tr key={t.id} style={t.employmentStatus && t.employmentStatus !== 'Active' && t.employmentStatus !== 'On Leave' ? { opacity: 0.55 } : undefined}>
+                <td className="font-medium">
+                  {t.name}{t.isAdmin && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1.5" style={{ background: 'var(--red)', color: '#fff' }}>ADMIN</span>}
+                  <div className="font-mono-ui text-xs">{t.employeeId}</div>
+                  {t.employmentStatus && t.employmentStatus !== 'Active' && (
+                    <div className="mt-0.5"><Stamp text={t.employmentStatus} /></div>
+                  )}
+                </td>
+                <td>{t.role}</td>
+                <td><Stamp text={t.department} /></td>
+                <td className="text-[12px]" style={{ color: t.performanceCategory === 'Top Performer' ? 'var(--gold)' : 'var(--muted)', fontWeight: t.performanceCategory === 'Top Performer' ? 600 : 400 }}>{t.performanceCategory || 'Standard'}</td>
+                <td data-testid={`hr-watch-${t.id}`}>{(() => { const sp = perf.staff.find(s => s.staffId === t.id); return sp ? <><Stamp text={sp.status} />{sp.flags.length > 0 && <div className="text-[10.5px] text-[var(--muted)] mt-0.5">{sp.flags.length} flag{sp.flags.length === 1 ? '' : 's'}</div>}</> : <span className="text-[var(--faint)] text-[11px]">—</span>; })()}</td>
+                <td className="text-[12px]">{t.contractType}<div className="font-mono-ui text-[10.5px]">{fmtDate(t.contractStart)}{t.contractEnd ? ` – ${fmtDate(t.contractEnd)}` : ' – ongoing'}</div></td>
+                <td className="font-mono-ui text-[11.5px]">{t.phone}<br />{t.email}</td>
+                <td className="font-mono-ui">{t.pin}</td>
+                <td>
+                  <div className="flex gap-1.5 justify-end">
+                    <button className="btn btn-sm" onClick={() => setFormStaff(t)}>Open profile</button>
+                    <ResetPinButton staff={t} onReveal={setPinReveal} />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <SectionHead title="Employee requests" count={`${requests.filter(r => r.status === 'Pending').length} pending of ${requests.length} total`} />
+      <div className="card p-0 overflow-auto">
+        <table>
+          <thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Details</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {[...requests].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
+              const emp = team.find(t => t.id === r.staffId);
+              return (
+                <tr key={r.id}>
+                  <td className="font-mono-ui text-xs">{fmtDate(r.date)}</td>
+                  <td className="font-medium">{emp?.name || '—'}</td>
+                  <td>{r.type}</td>
+                  <td className="text-[var(--muted)]">{r.details}{r.managerNote && <div className="font-mono-ui text-xs mt-0.5">Note: {r.managerNote}</div>}</td>
+                  <td><Stamp text={r.status} /></td>
+                  <td>
+                    {r.status === 'Pending' && (
+                      <div className="flex gap-1.5 justify-end">
+                        <button className="btn btn-sm" onClick={() => approveRequest(r)}>Approve</button>
+                        <button className="btn btn-sm btn-ghost btn-danger" onClick={() => { setRequests(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Rejected' } : x)); logActivity(`Rejected request from ${emp?.name} (${r.type})`); }}>Reject</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!requests.length && <tr><td colSpan={6} className="text-[var(--muted)] p-3.5">No requests submitted yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <SectionHead title="Client feedback" count={`${clientFeedback.length} received${clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length ? ` — ${clientFeedback.filter(f => f.moneyDemanded && !f.reviewedByCeo).length} need urgent attention` : ''}`} />
+      {clientFeedback.filter(f => f.moneyDemanded).length > 0 && (
+        <div className="card mb-3.5" style={{ background: 'var(--red-50)', border: '1px solid var(--red)' }}>
+          <div className="text-[13px] font-semibold mb-2" style={{ color: 'var(--red)' }}>⚠ Client(s) reported being asked for money beyond the official invoice</div>
+          {clientFeedback.filter(f => f.moneyDemanded).map(f => {
+            const emp = team.find(t => t.id === f.consultantId);
+            return (
+              <div key={f.id} className="py-2 border-t first:border-0" style={{ borderColor: 'rgba(0,0,0,.08)' }}>
+                <div className="text-[13px]"><b>{f.clientName}</b> ({f.caseReferenceCode}) — consultant: <b>{emp?.name || 'Unknown'}</b></div>
+                {f.moneyDemandedDetails && <div className="text-[12.5px] mt-1" style={{ color: '#6b1010' }}>&quot;{f.moneyDemandedDetails}&quot;</div>}
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="font-mono-ui text-[10.5px] text-[var(--faint)]">{fmtDate(f.submittedAt)}</span>
+                  {!f.reviewedByCeo && <button className="btn btn-sm" onClick={() => setClientFeedback(prev => prev.map(x => x.id === f.id ? { ...x, reviewedByCeo: true } : x))}>Mark reviewed</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="card p-0 overflow-auto mb-4">
+        <table>
+          <thead><tr><th>Client</th><th>Consultant</th><th>Rating</th><th>Recommend?</th><th>Comment</th><th>Date</th></tr></thead>
+          <tbody>
+            {[...clientFeedback].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).map(f => {
+              const emp = team.find(t => t.id === f.consultantId);
+              return (
+                <tr key={f.id}>
+                  <td className="font-medium">{f.clientName}</td>
+                  <td>{emp?.name || '—'}</td>
+                  <td style={{ color: 'var(--gold)' }}>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</td>
+                  <td>{f.wouldRecommend ? 'Yes' : 'No'}</td>
+                  <td className="text-[12.5px]">{f.comment || '—'}</td>
+                  <td className="font-mono-ui text-xs">{fmtDate(f.submittedAt)}</td>
+                </tr>
+              );
+            })}
+            {!clientFeedback.length && <tr><td colSpan={6} className="text-[var(--muted)] p-3.5">No client feedback received yet — clients can leave feedback from their case status page.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <SectionHead title="Performance & payroll" count="by department" />
+      {sales.length > 0 && (
+        <div className="card" style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={sales.map(t => ({
+              name: t.name,
+              leads: leads.filter(l => l.assignedTo === t.id).length,
+              closed: cases.filter(c => closerOf(c) === t.id).length,
+            }))}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="leads" name="Leads collected" fill="var(--gold)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="closed" name="Cases closed" fill="var(--navy)" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      {depts.map(dept => (
+        <div key={dept}>
+          <SectionHead title={dept} count={String(team.filter(t => t.department === dept).length)} />
+          <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
+            {team.filter(t => t.department === dept).map(t => <StaffCard key={t.id} staff={t} onAdjust={(type) => setAdjustFor({ staff: t, type })} />)}
+          </div>
+        </div>
+      ))}
+
+      <PlaybookEditor />
+
+      <Modal open={!!formStaff} onClose={() => setFormStaff(null)}>
+        {formStaff && <EmployeeForm staff={formStaff === 'new' ? null : formStaff} onClose={() => setFormStaff(null)} />}
+      </Modal>
+
+      <Modal open={!!pinReveal} onClose={() => setPinReveal(null)}>
+        {pinReveal && (
+          <>
+            <ModalTitle>PIN reset — {pinReveal.name}</ModalTitle>
+            <div className="text-[12.5px] text-[var(--muted)] mb-3.5">Share this new PIN with {pinReveal.name} directly — the old one no longer works.</div>
+            <div className="card text-center py-6">
+              <div className="text-[11.5px] uppercase text-[var(--muted)] font-semibold">New Portal PIN</div>
+              <div className="font-mono-ui text-[28px] font-bold mt-2" style={{ color: 'var(--navy)' }}>{pinReveal.pin}</div>
+            </div>
+            <ModalFoot><button className="btn btn-primary w-full" onClick={() => setPinReveal(null)}>Done</button></ModalFoot>
+          </>
+        )}
+      </Modal>
+      <Modal open={!!adjustFor} onClose={() => setAdjustFor(null)}>
+        {adjustFor && <AdjustForm staff={adjustFor.staff} type={adjustFor.type} onClose={() => setAdjustFor(null)} />}
+      </Modal>
+    </div>
+  );
+}
+
+function ResetPinButton({ staff, onReveal }: { staff: TeamMember; onReveal: (r: { name: string; pin: string }) => void }) {
+  const { setTeam } = useAppData();
+  const toast = useToast();
+  function doReset() {
+    const newPin = String(Math.floor(1000 + Math.random() * 9000));
+    setTeam(prev => prev.map(t => t.id === staff.id ? { ...t, pin: newPin } : t));
+    onReveal({ name: staff.name, pin: newPin });
+    toast('PIN reset');
+  }
+  return <button className="btn btn-sm" onClick={doReset}>Reset PIN</button>;
+}
+
+function AdjustForm({ staff, type, onClose }: { staff: TeamMember; type: 'Bonus' | 'Fine'; onClose: () => void }) {
+  const { setAdjustments, setTransactions, logActivity } = useAppData();
+  const toast = useToast();
+  const [amount, setAmount] = useState(0); const [reason, setReason] = useState('');
+
+  function save() {
+    if (amount <= 0) { toast('Enter an amount'); return; }
+    setAdjustments(prev => [...prev, { id: genId('adj'), staffId: staff.id, type, amount, reason, date: today() }]);
+    setTransactions(prev => [...prev, {
+      id: genId('tx'), date: today(), type: type === 'Bonus' ? 'Expense' : 'Income',
+      category: type === 'Bonus' ? 'Appreciation bonus' : 'Fine deduction', party: staff.name, amount, note: reason,
+    }]);
+    logActivity(`${type === 'Bonus' ? 'Appreciation bonus' : 'Fine'} — ${staff.name}, ${money(amount)}${reason ? ' (' + reason + ')' : ''}`);
+    toast(type === 'Bonus' ? 'Appreciation bonus recorded' : 'Fine recorded');
+    onClose();
+  }
+
+  return (
+    <>
+      <ModalTitle>{type === 'Bonus' ? 'Give appreciation bonus' : 'Apply fine'} — {staff.name}</ModalTitle>
+      <Field label="Amount (PKR)"><input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} /></Field>
+      <Field label="Reason"><input value={reason} onChange={e => setReason(e.target.value)} placeholder={type === 'Bonus' ? 'e.g. Closed 3 cases this week' : 'e.g. Missed client appointment'} /></Field>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>Save {type.toLowerCase()}</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function StaffCard({ staff: t, onAdjust }: { staff: TeamMember; onAdjust: (type: 'Bonus' | 'Fine') => void }) {
+  const { leads, cases, transactions, adjustments } = useAppData();
+  const isSales = t.department === 'Sales';
+  const myLeads = leads.filter(l => l.assignedTo === t.id).length;
+  const handled = cases.filter(c => c.consultant === t.id).length;
+  // "Closed" follows the closing employee and date set on each case.
+  const closedAll = cases.filter(c => closerOf(c) === t.id);
+  const won = closedAll.length;
+  const revenue = closedAll.reduce((s, c) => s + overallPaid(c), 0);
+  const total = myLeads + handled;
+  const rate = total ? Math.round((won / total) * 100) : 0;
+  const thisMonth = today().slice(0, 7);
+  const closedThisMonth = casesClosedBy(cases, t.id, thisMonth).length;
+  const collectedThisMonth = collectedFor(cases, transactions, t.id, thisMonth);
+  const quota = t.monthlyQuota || 5;
+  const quotaMet = closedThisMonth >= quota;
+  const commissionThisMonth = Math.round(collectedThisMonth * (t.commissionPercent / 100));
+  const caseBonusDue = dueCaseBonuses(cases, t.id, thisMonth).reduce((s, x) => s + x.bonus.amount, 0);
+  const bonusThisMonth = closedThisMonth * t.bonusPerClose + caseBonusDue;
+  const [slipsOpen, setSlipsOpen] = useState(false);
+  const myAdj = adjustments.filter(a => a.staffId === t.id);
+  const apprTotal = myAdj.filter(a => a.type === 'Bonus').reduce((s, a) => s + a.amount, 0);
+  const fineTotal = myAdj.filter(a => a.type === 'Fine').reduce((s, a) => s + a.amount, 0);
+
+  return (
+    <div className="card">
+      <div className="flex justify-between items-start">
+        <div><div className="font-display font-semibold text-[15px]">{t.name}</div><div className="text-[var(--muted)] text-xs">{t.role}</div></div>
+        <span className="font-mono-ui text-[11px] text-[var(--faint)]">{t.employeeId}</span>
+      </div>
+      <div className="font-mono-ui text-[11.5px] text-[var(--faint)] my-1.5">{t.phone} · Shift {t.shiftStart}–{t.shiftEnd} · PIN {t.pin}</div>
+      <PerfPanel staffId={t.id} compact />
+      {isSales && (
+        <>
+          <Row label="Leads collected" value={String(myLeads)} />
+          <Row label="Cases handled" value={String(handled)} />
+          <Row label="Cases closed (all time)" value={String(won)} />
+          <Row label="Revenue collected" value={money(revenue)} />
+          <Row label="Conversion ratio" value={`${rate}%`} last />
+        </>
+      )}
+      <div className="pt-2.5 border-t" style={{ borderColor: 'var(--line)' }}>
+        <Row label="Base salary" value={money(t.salary)} />
+        {t.monthlyAllowance > 0 && <Row label="Monthly allowance" value={money(t.monthlyAllowance)} />}
+        {t.contractStart && <Row label="Joined" value={fmtDate(t.contractStart)} />}
+        {isSales && <>
+          <Row label={`This month's closings (quota ${quota})`} value={`${closedThisMonth}/${quota} closed`} />
+          <Row label="Collected this month" value={money(collectedThisMonth)} />
+          <Row label={`Commission this month (${t.commissionPercent}%)`} value={quotaMet ? money(commissionThisMonth) : `Locked — ${quota - closedThisMonth} more to unlock`} />
+        </>}
+        {bonusThisMonth > 0 && <Row label="Bonuses this month" value={money(bonusThisMonth)} />}
+        {(apprTotal || fineTotal) ? <Row label="Appreciation / fines" value={`+${money(apprTotal)} / -${money(fineTotal)}`} last /> : null}
+        <div className="text-[11.5px] text-[var(--faint)] mb-1.5">Commission and bonuses are paid with the monthly payroll.</div>
+        <div className="flex gap-2 flex-wrap mt-2.5">
+          <button className="btn btn-sm flex-1" onClick={() => setSlipsOpen(true)}>Payslips</button>
+        </div>
+        <div className="flex gap-2 mt-2">
+          <button className="btn btn-sm flex-1" style={{ color: 'var(--green)' }} onClick={() => onAdjust('Bonus')}>+ Appreciation</button>
+          <button className="btn btn-sm flex-1" style={{ color: 'var(--red)' }} onClick={() => onAdjust('Fine')}>+ Fine</button>
+        </div>
+      </div>
+
+      <Modal open={slipsOpen} onClose={() => setSlipsOpen(false)} wide>
+        {slipsOpen && <PayslipHistory staff={t} onClose={() => setSlipsOpen(false)} />}
+      </Modal>
+    </div>
+  );
+}
+
+function Row({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div className={`flex justify-between text-[12.5px] ${last ? 'mb-3' : 'mb-1.5'}`}>
+      <span className="text-[var(--muted)]">{label}</span><span className="font-mono-ui">{value}</span>
+    </div>
+  );
+}
+
+function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: () => void }) {
+  const { team, setTeam } = useAppData();
+  const toast = useToast();
+  const t = staff;
+  const [name, setName] = useState(t?.name || ''); const [phone, setPhone] = useState(t?.phone || ''); const [email, setEmail] = useState(t?.email || '');
+  const [department, setDepartment] = useState<TeamMember['department']>(t?.department || 'Sales'); const [role, setRole] = useState(t?.role || '');
+  const [education, setEducation] = useState(t?.education || ''); const [experience, setExperience] = useState(t?.experience || '');
+  const [contractType, setContractType] = useState<TeamMember['contractType']>(t?.contractType || 'Permanent');
+  const [contractStart, setContractStart] = useState(t?.contractStart || today()); const [contractEnd, setContractEnd] = useState(t?.contractEnd || '');
+  const [shiftStart, setShiftStart] = useState(t?.shiftStart || '10:00'); const [shiftEnd, setShiftEnd] = useState(t?.shiftEnd || '18:00');
+  const [salary, setSalary] = useState(t?.salary || 0); const [commissionPercent, setCommissionPercent] = useState(t?.commissionPercent || 0); const [bonusPerClose, setBonusPerClose] = useState(t?.bonusPerClose || 0);
+  const [jobDescription, setJobDescription] = useState(t?.jobDescription || '');
+  const [employeeId, setEmployeeId] = useState(t?.employeeId || `GG-${String(team.length + 1).padStart(3, '0')}`);
+  const [pin, setPin] = useState(t?.pin || String(1000 + team.length + 1));
+  const [monthlyQuota, setMonthlyQuota] = useState(t?.monthlyQuota ?? 5);
+  const [performanceCategory, setPerformanceCategory] = useState<TeamMember['performanceCategory']>(t?.performanceCategory || 'Standard');
+  const [employmentStatus, setEmploymentStatus] = useState<TeamMember['employmentStatus']>(t?.employmentStatus || 'Active');
+  const [isAdmin, setIsAdmin] = useState(t?.isAdmin || false);
+  const [lastWorkingDay, setLastWorkingDay] = useState(t?.lastWorkingDay || '');
+  const [monthlyAllowance, setMonthlyAllowance] = useState(t?.monthlyAllowance || 0);
+  const [guardianName, setGuardianName] = useState(t?.guardianName || '');
+  const [guardianPhone, setGuardianPhone] = useState(t?.guardianPhone || '');
+  const [address, setAddress] = useState(t?.address || '');
+  const [contractPdf, setContractPdf] = useState(t?.contractPdf || '');
+  const [contractPdfName, setContractPdfName] = useState(t?.contractPdfName || '');
+
+  function save() {
+    if (!name.trim()) { toast('Enter a name'); return; }
+    const data: TeamMember = {
+      id: t?.id || `tm_${Date.now().toString(36)}`, name, phone, email, department, role: role || 'Staff',
+      education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
+      salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
+      monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay, monthlyAllowance,
+      guardianName, guardianPhone, address, contractPdf, contractPdfName, isAdmin,
+    };
+    if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
+    else setTeam(prev => [...prev, data]);
+    toast(t ? 'Profile saved' : 'Employee added');
+    onClose();
+  }
+
+  return (
+    <>
+      <ModalTitle>{t ? `Employee profile — ${t.name}` : 'Add new employee'}</ModalTitle>
+      {t && <div className="card mb-3" style={{ background: '#F7F9FC' }}><PerfPanel staffId={t.id} /></div>}
+      {t && (
+        <>
+          <SectionHead title="Employment status" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Status">
+              <select value={employmentStatus} onChange={e => setEmploymentStatus(e.target.value as TeamMember['employmentStatus'])}>
+                {(['Active', 'On Leave', 'Resigned', 'Terminated'] as const).map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            {employmentStatus !== 'Active' && employmentStatus !== 'On Leave' && (
+              <Field label="Last working day"><input type="date" value={lastWorkingDay} onChange={e => setLastWorkingDay(e.target.value)} /></Field>
+            )}
+          </div>
+          {employmentStatus !== 'Active' && (
+            <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">
+              {employmentStatus === 'On Leave'
+                ? "They're temporarily unavailable — hidden from new lead/case assignment, but can still log in."
+                : "Their full history (cases, payments, attendance) stays exactly as it is — they just can no longer log in, and won't show up when assigning new work."}
+            </div>
+          )}
+
+          <div className="card mb-3" style={{ background: isAdmin ? 'var(--red-50)' : '#F7F9FC' }}>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" className="!w-auto" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} />
+              <span className="text-[13px] font-medium">Give this person full admin access</span>
+            </label>
+            <div className="text-[11.5px] mt-1.5" style={{ color: isAdmin ? '#8a2020' : 'var(--faint)' }}>
+              This is the same as the Head Manager login — every module, every salary, every bank balance, and the ability to grant or remove this same access from anyone else, including you. Only turn this on for someone you'd trust with the Head Manager's own PIN.
+            </div>
+          </div>
+        </>
+      )}
+      <SectionHead title="Personal & contact details" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} /></Field>
+        <Field label="Phone"><input value={phone} onChange={e => setPhone(e.target.value)} /></Field>
+      </div>
+      <Field label="Email"><input value={email} onChange={e => setEmail(e.target.value)} /></Field>
+      <Field label="Address"><input value={address} onChange={e => setAddress(e.target.value)} placeholder="Home address" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Guardian's name"><input value={guardianName} onChange={e => setGuardianName(e.target.value)} placeholder="Father/husband/guardian" /></Field>
+        <Field label="Guardian's contact"><input value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)} /></Field>
+      </div>
+      <Field label="Employment contract (PDF, optional, under 4MB)">
+        <input type="file" accept="application/pdf" onChange={async e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          if (file.type !== 'application/pdf') { toast('Please choose a PDF file'); return; }
+          if (file.size > MAX_PDF_BYTES) { toast('PDF is too large — please keep it under 4MB'); return; }
+          const dataUrl = await readFileAsDataUrl(file);
+          setContractPdf(dataUrl); setContractPdfName(file.name);
+        }} />
+        {contractPdfName && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11.5px]" style={{ color: 'var(--green)' }}>Attached: {contractPdfName}</span>
+            <button type="button" className="btn btn-sm btn-ghost btn-danger" onClick={() => { setContractPdf(''); setContractPdfName(''); }}>Remove</button>
+          </div>
+        )}
+      </Field>
+
+      <SectionHead title="Post, designation & role assignment" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Department (role assignment)">
+          <select value={department} onChange={e => setDepartment(e.target.value as TeamMember['department'])}>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+        </Field>
+        <Field label="Post / designation"><input value={role} onChange={e => setRole(e.target.value)} /></Field>
+      </div>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">Whichever department is selected here decides what shows in this person&apos;s own portal.</div>
+
+      <SectionHead title="Education & experience" />
+      <Field label="Education"><input value={education} onChange={e => setEducation(e.target.value)} /></Field>
+      <Field label="Experience"><textarea rows={2} value={experience} onChange={e => setExperience(e.target.value)} /></Field>
+
+      <SectionHead title="Contract" />
+      <Field label="Contract type">
+        <select value={contractType} onChange={e => setContractType(e.target.value as TeamMember['contractType'])}>
+          {['Permanent', 'Contract', 'Probation', 'Part-time'].map(c => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Contract start"><input type="date" value={contractStart} onChange={e => setContractStart(e.target.value)} /></Field>
+        <Field label="Contract end (blank if ongoing)"><input type="date" value={contractEnd} onChange={e => setContractEnd(e.target.value)} /></Field>
+      </div>
+
+      <SectionHead title="Duty timing & pay" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Shift start"><input type="time" value={shiftStart} onChange={e => setShiftStart(e.target.value)} /></Field>
+        <Field label="Shift end"><input type="time" value={shiftEnd} onChange={e => setShiftEnd(e.target.value)} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Monthly base salary (PKR)"><input type="number" value={salary} onChange={e => setSalary(Number(e.target.value))} /></Field>
+        <Field label="Monthly allowance (PKR)"><input type="number" value={monthlyAllowance} onChange={e => setMonthlyAllowance(Number(e.target.value))} /></Field>
+      </div>
+      <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">Transport, communication, or any other fixed monthly amount — paid alongside salary, kept separate so it's clear what's base pay.</div>
+      {department === 'Sales' && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Commission (%)"><input type="number" value={commissionPercent} onChange={e => setCommissionPercent(Number(e.target.value))} /></Field>
+          <Field label="Bonus per closed case (PKR)"><input type="number" value={bonusPerClose} onChange={e => setBonusPerClose(Number(e.target.value))} /></Field>
+        </div>
+      )}
+      {department === 'Sales' && (
+        <Field label="Monthly case quota before commission unlocks">
+          <input type="number" value={monthlyQuota} onChange={e => setMonthlyQuota(Number(e.target.value))} />
+        </Field>
+      )}
+      <Field label="Performance category">
+        <select value={performanceCategory} onChange={e => setPerformanceCategory(e.target.value as TeamMember['performanceCategory'])}>
+          {(['Junior', 'Standard', 'Senior', 'Top Performer'] as const).map(c => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+      <Field label="Job description (optional)"><textarea rows={2} value={jobDescription} onChange={e => setJobDescription(e.target.value)} /></Field>
+
+      <SectionHead title="Portal account" />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Employee ID"><input value={employeeId} onChange={e => setEmployeeId(e.target.value)} /></Field>
+        <Field label="Portal PIN"><input value={pin} onChange={e => setPin(e.target.value)} maxLength={6} /></Field>
+      </div>
+
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={save}>{t ? 'Save changes' : 'Add employee'}</button>
+      </ModalFoot>
+    </>
+  );
+}
+
+function PlaybookEditor() {
+  const { playbook, setPlaybook } = useAppData();
+  const toast = useToast();
+  const [draft, setDraft] = useState(playbook);
+  const [editing, setEditing] = useState(false);
+
+  function save() {
+    setPlaybook(draft);
+    setEditing(false);
+    toast('Playbook saved — every employee can now see this from their own portal');
+  }
+
+  return (
+    <>
+      <SectionHead title="Company playbook" count="responsibilities, follow-up mechanism, sales approach — visible to every employee" action={
+        !editing && <button className="btn btn-sm ml-auto" onClick={() => { setDraft(playbook); setEditing(true); }}>{playbook ? 'Edit' : '+ Write it'}</button>
+      } />
+      {editing ? (
+        <div className="card">
+          <div className="text-[11.5px] text-[var(--faint)] mb-2">
+            One shared document every employee can read from their own portal — responsibilities, how to run a follow-up, your sales approach, how you want clients handled, the points that actually convince someone to sign. Write it once here so every new hire has the same reference, in writing.
+          </div>
+          <textarea rows={16} value={draft} onChange={e => setDraft(e.target.value)} placeholder={"e.g.\n\nRESPONSIBILITIES\n...\n\nFOLLOW-UP MECHANISM\n...\n\nSALES APPROACH\n...\n\nCLIENT DEALING\n...\n\nKEY POINTS THAT CONVINCE CLIENTS\n..."} />
+          <div className="flex gap-2 mt-2.5">
+            <button className="btn btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn btn-sm btn-primary" onClick={save}>Save playbook</button>
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          {playbook ? (
+            <div className="text-[13px] whitespace-pre-wrap" style={{ lineHeight: 1.6 }}>{playbook}</div>
+          ) : (
+            <div className="text-[13px] text-[var(--muted)]">Nothing written yet — click &quot;+ Write it&quot; to create the reference document every employee will see in their own portal.</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}

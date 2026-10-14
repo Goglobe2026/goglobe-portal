@@ -1,0 +1,94 @@
+// Maps the existing, unchanged module tabs into the grouped, drill-down
+// navigation structure. Group ids are deliberately prefixed ("grp-...") so
+// they never collide with the leaf tab ids they contain — "cases" the
+// module and "grp-cases" the group hub are two different screens.
+
+export type NavTile = { id: string; label: string; blurb: string };
+export type NavGroup =
+  | { id: string; label: string; standalone: true; blurb: string }
+  | { id: string; label: string; standalone?: false; tiles: NavTile[]; blurb: string };
+
+export const NAV_GROUPS: NavGroup[] = [
+  { id: 'dashboard', label: 'Dashboard', standalone: true, blurb: 'Business status across every country, at a glance' },
+  { id: 'dailyreport', label: 'Daily Report', standalone: true, blurb: 'Your whole business in one WhatsApp message, every evening' },
+  {
+    id: 'grp-marketing', label: 'Marketing', blurb: 'Leads, campaigns, and everything that brings clients in',
+    tiles: [
+      { id: 'leads', label: 'Leads', blurb: 'Every enquiry, from first message to conversion' },
+      { id: 'leadsources', label: 'Lead Sources', blurb: 'One link per ad form — country-wise leads, answers and results' },
+      { id: 'campaigns', label: 'Campaigns', blurb: 'Ad performance, cost per lead and per conversion' },
+      { id: 'adsmanager', label: 'Ads Manager', blurb: 'Live from Meta: campaign status, spend, leads — against clients and payments' },
+      { id: 'testimonials', label: 'Success Stories', blurb: 'Approved cases and client testimonials' },
+    ],
+  },
+  {
+    id: 'grp-cases', label: 'Cases & Clients', blurb: 'Active visa cases, appointments, and referral partners',
+    tiles: [
+      { id: 'cases', label: 'Cases', blurb: 'Active and closed visa applications' },
+      { id: 'appointments', label: 'Appointments', blurb: 'Embassy dates, consultations, document collection' },
+      { id: 'referralagents', label: 'Referral Agents', blurb: 'External partners and their commissions' },
+      { id: 'complaints', label: 'Complaints & Feedback', blurb: 'Client complaints, resolution tracking and ratings' },
+      { id: 'clientdocs', label: 'Client Documents', blurb: 'Originals received, held, submitted and returned' },
+    ],
+  },
+  { id: 'grouptours', label: 'Group Tours', standalone: true, blurb: 'Package tour registrations and QR verification' },
+  {
+    id: 'grp-hr', label: 'HR', blurb: 'Your team — records, attendance, and requests',
+    tiles: [
+      { id: 'hr', label: 'HR Department', blurb: 'Employee records, roles, contracts, performance' },
+      { id: 'perfwatch', label: 'Performance Watch', blurb: 'Who is falling behind — untouched leads, missed follow-ups, lateness and targets, flagged automatically' },
+      { id: 'payroll', label: 'Payroll', blurb: 'Monthly pay runs, payslips, pay categories and advances' },
+      { id: 'appraisal', label: 'Targets & Appraisal', blurb: 'Monthly targets, scorecards and top performers' },
+      { id: 'announcements', label: 'Announcements', blurb: 'Notices every employee sees in their portal' },
+      { id: 'letters', label: 'Letters & Certificates', blurb: 'Experience, salary, appointment and warning letters' },
+      { id: 'attendance', label: 'Attendance', blurb: 'Check-in, check-out and duty timings, tracked daily' },
+    ],
+  },
+  {
+    id: 'grp-finance', label: 'Finance', blurb: 'Money in, money out, and what things cost',
+    tiles: [
+      { id: 'accounts', label: 'Accounts', blurb: 'Ledger, outstanding balances, bank accounts' },
+      { id: 'billing', label: 'Billing Center', blurb: 'Who owes what, overdue balances and payment reminders' },
+      { id: 'closing', label: 'Monthly Closing', blurb: 'Month-end cash position, collections and pending balances' },
+      { id: 'profit', label: 'Profit & Growth', blurb: 'Net profit, unpaid balances kept apart, and growth against last month and last year' },
+      { id: 'reports', label: 'Reports & Finance', blurb: 'Performance charts, loans, revenue targets' },
+      { id: 'pricing', label: 'Pricing by Country', blurb: 'Consultation, visa service, and appointment fees' },
+    ],
+  },
+  {
+    id: 'grp-quality', label: 'Quality & Team', blurb: 'Check files before they go out, and talk to your team privately',
+    tiles: [
+      { id: 'qc', label: 'Quality Control', blurb: 'Pre-submission checklist for every case, with pass / fail history' },
+      { id: 'messages', label: 'Team Messages', blurb: 'Private one-to-one chat between you and each team member' },
+    ],
+  },
+];
+
+// What the sidebar shows: every module as its own link, under small group
+// headings. Group Tours is listed with Cases & Clients here.
+export type SidebarSection = { id: string; label: string; groupId: string; items: NavTile[] };
+export function sidebarSections(): SidebarSection[] {
+  const out: SidebarSection[] = [];
+  for (const g of NAV_GROUPS) {
+    if (g.standalone) continue;
+    const items = [...g.tiles];
+    if (g.id === 'grp-cases') items.push({ id: 'grouptours', label: 'Group Tours', blurb: 'Package tour registrations and QR verification' });
+    out.push({ id: g.id, label: g.label, groupId: g.id, items });
+  }
+  return out;
+}
+
+// Given any leaf tab id (e.g. "leads"), finds which group it lives under —
+// used both for the sidebar's "back to..." link and for highlighting the
+// right group as active while you're inside one of its tiles.
+export function findGroupForTab(tabId: string): NavGroup | null {
+  for (const g of NAV_GROUPS) {
+    if (g.id === tabId) return g;
+    if (!g.standalone && g.tiles.some(t => t.id === tabId)) return g;
+  }
+  return null;
+}
+
+export function isGroupHub(id: string): boolean {
+  return NAV_GROUPS.some(g => g.id === id && !g.standalone);
+}
