@@ -114,3 +114,7 @@ tbody tr:hover { background: #F7FBF9; }
   .no-print { display: none !important; }
   .avoid-break { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* Screens that use Arial (the Leads page, and the windows it opens). */
+.arial-scope, .arial-scope * { font-family: Arial, Helvetica, sans-serif !important; }
+.arial-scope .card:hover { transform: none; box-shadow: 0 2px 10px rgba(11,110,79,.07); }

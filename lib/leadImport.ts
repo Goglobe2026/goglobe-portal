@@ -117,6 +117,16 @@ export function extractDateOnly(raw: string, todayFallback: string): string {
   return todayFallback;
 }
 
+// The exact moment a lead came in, as an ISO time — or '' when the sheet only
+// gave a date (or nothing), so we never invent a time of day.
+export function extractTimestamp(raw: string): string {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (!(/(Z|[+-]\d{2}:?\d{2})$/.test(text) && /T|\d{1,2}:\d{2}/.test(text))) return '';
+  const parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
 export function normHeader(h: string): string {
   return String(h || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
@@ -313,6 +323,9 @@ export function buildLeadsFromRows(headers: string[], rows: string[][], ctx: Bui
       else if (/visit|tourist|tourism|visitor/.test(visaText) && types.includes('Tourist')) visaType = 'Tourist';
     }
 
+    // The exact time when the sheet gives one; otherwise "now" only if it came in today.
+    const receivedAt = (createdIdx > -1 ? extractTimestamp(row[createdIdx]) : '') || (createdAt === ctx.todayStr ? new Date().toISOString() : '');
+
     const { lines, answers, occupation } = collectAnswers(row);
     if (inboxCol > -1 && row[inboxCol]) lines.push(`Facebook chat: ${row[inboxCol].trim()}`);
 
@@ -324,6 +337,8 @@ export function buildLeadsFromRows(headers: string[], rows: string[][], ctx: Bui
       campaign: defaults.campaign || (campaignIdx > -1 ? (row[campaignIdx] || '') : ''),
       ...(defaults.sourceId ? { sourceId: defaults.sourceId } : {}),
       ...(Object.keys(answers).length ? { answers } : {}),
+      ...(receivedAt ? { receivedAt } : {}),
+      ...(cityIdx > -1 && (row[cityIdx] || '').trim() ? { city: row[cityIdx].trim() } : {}),
       destination, visaType, stage: 'New', assignedTo: '', createdAt,
       notes: lines.join('\n'), messages: [], nextFollowUp: ctx.todayStr, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',

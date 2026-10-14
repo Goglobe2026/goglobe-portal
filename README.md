@@ -147,6 +147,26 @@ Open **Daily Report** in the sidebar (Head Manager only). It has four tabs: **Re
 
 **Optional settings** (environment variables): `REPORT_TICK_MS` (how often the clock is checked, default 60000), `WHATSAPP_API_BASE`, `BIRD_API_BASE` and `CALLMEBOT_BASE` (only for testing against a stand-in server).
 
+## The Leads page (laid out like the Go Globe sheet)
+
+*Marketing → Leads.* One screen, five tabs, Arial throughout, navy and teal like the Go Globe CRM sheet:
+
+- **Dashboard** – all-leads numbers, a country-by-country table (UK first, marked PRIORITY), new leads per day,
+  results per ad form, who is waiting for a first contact and which follow-ups are overdue. Every tile is
+  clickable and jumps to the matching list.
+- **UK** (opens first) · **Schengen** · **Other countries** · **All leads** – each tab shows only its own leads.
+  On *All leads* the UK leads stay on top ("UK first" can be switched off for a pure newest-first list).
+- **Latest on top, always.** Newest day first; inside a day the exact arrival time is used when the sheet
+  gives one (older leads fall back to the order they were added).
+- **New leads are green** (stage *New* and arrived in the last 48 hours) with a NEW tag; once someone
+  contacts the lead the colour goes. Overdue follow-ups are tinted red, VIPs gold.
+- The list shows the columns of the sheet — client, status (coloured), assigned to, source, city,
+  follow-up, action. Occupation, notes, form answers, messages, escalation, visits and tours are one click away
+  in the **details** window (click the name or ⋯).
+- A Google Sheet link that was pasted in the old "Sync from Google Sheet" box turns into a **Lead Source** by
+  itself the next time it syncs (named after the ad form), so it is read automatically from then on and
+  shows up on the Lead Sources screen, filed under UK or Schengen.
+
 ## Lead sources (one link per campaign and country)
 
 *Marketing → Lead Sources.* Every ad form has its own questions, so each campaign

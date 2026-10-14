@@ -1,38 +1,33 @@
 'use client';
 import { useState, useMemo, useEffect } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate, money } from '@/lib/constants';
+import { DESTINATIONS, visaTypesFor, LEAD_STAGES, genId, today, fmtDate } from '@/lib/constants';
 import { exportToCsv, parseCsv } from '@/lib/csv';
 import { campaignStatus, matchesCampaignName } from '@/lib/campaigns';
 import { normalizeCountry, normalizePlatformSource, normalizeImportPhone, guessColumnMapping, buildLeadsFromRows } from '@/lib/leadImport';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import { leadPayment } from '@/lib/leadStats';
-import type { Lead, FollowUpTemplate, Campaign, Case } from '@/lib/types';
+import { THEME, GROUPS, groupStats, totalStats, sortNewest, inTab, isFresh, isDue, followState, cityOf, type LeadTab, type CountryGroup, groupLook } from '@/lib/leadView';
+import { LeadsTable } from './LeadsTable';
+import { LeadsDashboard, type Preset } from './LeadsDashboard';
+import { LeadDetails, type DetailAction } from './LeadDetails';
+import type { Lead, FollowUpTemplate, Campaign } from '@/lib/types';
 
 function waLink(phone: string, text: string) {
   const digits = (phone || '').replace(/[^0-9]/g, '').replace(/^0/, '92');
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
-// What a converted lead has paid so far, read from the case with the same phone number.
-function PaymentBadge({ lead, cases }: { lead: Lead; cases: Case[] }) {
-  const p = leadPayment(lead, cases);
-  const tone = p.state === 'Paid in full' ? ['var(--green-50)', 'var(--green)'] : p.state === 'Part paid' ? ['var(--gold-50)', '#8a5a12'] : p.state === 'Unpaid' ? ['var(--red-50)', 'var(--red)'] : ['#F0F1F4', 'var(--muted)'];
-  return (
-    <div className="mt-1" title={p.charge ? `Charge ${money(p.charge)} · paid ${money(p.paid)}` : 'Open a case for this client to track payment'}>
-      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide whitespace-nowrap" style={{ background: tone[0], color: tone[1] }}>{p.state}</span>
-      {p.state === 'Part paid' && <div className="text-[10.5px] mt-0.5" style={{ color: '#8a5a12' }}>{money(p.outstanding)} owed</div>}
-    </div>
-  );
-}
-function isOverdue(l: Lead) {
-  return !!l.nextFollowUp && l.nextFollowUp <= today() && !['Converted', 'Lost'].includes(l.stage);
-}
+
+const PAGE_SIZE = 50;
+const TAB_KEY = 'goglobe.leads.tab';
+const TAB_LABEL: Record<LeadTab, string> = { dashboard: 'Dashboard', UK: 'UK', Schengen: 'Schengen', Other: 'Other countries', all: 'All leads' };
+const TABS: LeadTab[] = ['dashboard', 'UK', 'Schengen', 'Other', 'all'];
 
 export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const { leads, setLeads, team, campaigns, followUpTemplates, logActivity, cases, leadSources } = useAppData();
   const toast = useToast();
+  const [tab, setTabState] = useState<LeadTab>('UK');
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSheetSync, setShowSheetSync] = useState(false);
@@ -42,50 +37,65 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
   const [escalateFor, setEscalateFor] = useState<string | null>(null);
   const [showMaterialsFor, setShowMaterialsFor] = useState<string | null>(null);
   const [scheduleVisitFor, setScheduleVisitFor] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [msgLead, setMsgLead] = useState<Lead | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [countryFilter, setCountryFilter] = useState<string | null>(null);
-  const [dueOnly, setDueOnly] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [showCountryNotes, setShowCountryNotes] = useState(false);
   const [tourLeadId, setTourLeadId] = useState<string | null>(null);
-
-  const assignable = team.filter(t => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
-  const consultantName = (id: string) => team.find(t => t.id === id)?.name || 'Unassigned';
-
-  const countryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    leads.forEach(l => { counts[l.destination] = (counts[l.destination] || 0) + 1; });
-    return DESTINATIONS.map(d => ({ dest: d, count: counts[d] || 0 })).filter(c => c.count > 0).sort((a, b) => b.count - a.count);
-  }, [leads]);
-
-  const dueCount = leads.filter(isOverdue).length;
   const [search, setSearch] = useState('');
-  const [newTodayOnly, setNewTodayOnly] = useState(false);
-  const [vipOnly, setVipOnly] = useState(false);
-  const [engagementDueOnly, setEngagementDueOnly] = useState(false);
+  const [presets, setPresets] = useState<Set<Preset | 'engagement'>>(new Set());
+  const [ukFirst, setUkFirst] = useState(true);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
+
+  // The clock for "5 min ago" and the NEW highlight: moves on by itself every minute.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNowMs(Date.now()), 60000); return () => clearInterval(t); }, []);
   const todayStr = today();
-  const newTodayCount = leads.filter(l => l.createdAt === todayStr).length;
+
+  // Remember which tab was open last time.
+  useEffect(() => {
+    try { const v = localStorage.getItem(TAB_KEY) as LeadTab | null; if (v && (TABS as string[]).includes(v)) setTabState(v); } catch { /* private window */ }
+  }, []);
+  function setTab(t: LeadTab) {
+    setTabState(t);
+    try { localStorage.setItem(TAB_KEY, t); } catch { /* ignore */ }
+  }
+
+  const assignable = team.filter((t: any) => ['Sales', 'Management'].includes(t.department) && (!t.employmentStatus || t.employmentStatus === 'Active'));
+  const consultantName = (id: string) => team.find((t: any) => t.id === id)?.name || 'Unassigned';
+
+  const by = useMemo(() => groupStats(leads, nowMs, todayStr), [leads, nowMs, todayStr]);
+  const all = useMemo(() => totalStats(by), [by]);
+
   function isDueForEngagement(l: Lead) {
     if (['Converted', 'Lost'].includes(l.stage)) return false;
     if (!l.lastEngagementSent) return true;
-    const days = Math.floor((Date.now() - new Date(l.lastEngagementSent).getTime()) / 86400000);
+    const days = Math.floor((nowMs - new Date(l.lastEngagementSent).getTime()) / 86400000);
     return days >= 15;
   }
-  const engagementDueCount = leads.filter(isDueForEngagement).length;
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  function consultantNameFor(id: string) { return team.find((t: any) => t.id === id)?.name || 'Unassigned'; }
+  // Leads of the open tab, before the quick filters: this is what the filter counts are taken from.
+  const tabLeads = useMemo(() => leads.filter(l => inTab(l, tab)), [leads, tab]);
+  const counts = useMemo(() => ({
+    new: tabLeads.filter(l => isFresh(l, nowMs, todayStr)).length,
+    due: tabLeads.filter(l => isDue(l, todayStr)).length,
+    waiting: tabLeads.filter(l => l.stage === 'New').length,
+    unassigned: tabLeads.filter(l => !l.assignedTo && !['Converted', 'Lost'].includes(l.stage)).length,
+    vip: tabLeads.filter(l => l.isVip).length,
+    engagement: tabLeads.filter(isDueForEngagement).length,
+  }), [tabLeads, nowMs, todayStr]);
+
   function sortValue(l: Lead, col: string): string | number {
     switch (col) {
       case 'name': return l.name.toLowerCase();
-      case 'destination': return l.destination.toLowerCase();
-      case 'interest': return { High: 3, Medium: 2, Low: 1, Unrated: 0 }[l.interestLevel] ?? 0;
-      case 'consultant': return consultantNameFor(l.assignedTo).toLowerCase();
+      case 'destination': return (l.destination || '').toLowerCase();
+      case 'consultant': return consultantName(l.assignedTo).toLowerCase();
       case 'stage': return LEAD_STAGES.indexOf(l.stage as any);
-      case 'nextFollowUp': return l.nextFollowUp || '';
+      case 'nextFollowUp': return l.nextFollowUp || '9999';
       default: return '';
     }
   }
@@ -93,60 +103,64 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     if (sortColumn === col) setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortColumn(col); setSortDirection('asc'); }
   }
-  function sortArrow(col: string) {
-    if (sortColumn !== col) return '';
-    return sortDirection === 'asc' ? ' ▲' : ' ▼';
-  }
 
-  const filtered = leads.filter(l => {
-    if (countryFilter && l.destination !== countryFilter) return false;
-    if (dueOnly && !isOverdue(l)) return false;
-    if (newTodayOnly && l.createdAt !== todayStr) return false;
-    if (vipOnly && !l.isVip) return false;
-    if (engagementDueOnly && !isDueForEngagement(l)) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      const qDigits = q.replace(/[^0-9]/g, '');
-      const nameMatch = l.name.toLowerCase().includes(q);
-      const phoneMatch = qDigits.length > 0 && normalizePhone(l.phone).includes(normalizePhone(qDigits));
-      if (!nameMatch && !phoneMatch) return false;
-    }
-    return true;
-  }).sort((a, b) => {
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const qDigits = q.replace(/[^0-9]/g, '');
+    const base = tabLeads.filter(l => {
+      if (presets.has('new') && !isFresh(l, nowMs, todayStr)) return false;
+      if (presets.has('due') && !isDue(l, todayStr)) return false;
+      if (presets.has('waiting') && l.stage !== 'New') return false;
+      if (presets.has('unassigned') && (l.assignedTo || ['Converted', 'Lost'].includes(l.stage))) return false;
+      if (presets.has('vip') && !l.isVip) return false;
+      if (presets.has('engagement') && !isDueForEngagement(l)) return false;
+      if (q) {
+        const nameMatch = l.name.toLowerCase().includes(q);
+        const phoneMatch = qDigits.length > 0 && normalizePhone(l.phone).includes(normalizePhone(qDigits));
+        const cityMatch = cityOf(l).toLowerCase().includes(q);
+        if (!nameMatch && !phoneMatch && !cityMatch) return false;
+      }
+      return true;
+    });
     if (sortColumn) {
-      const av = sortValue(a, sortColumn), bv = sortValue(b, sortColumn);
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-      return sortDirection === 'asc' ? cmp : -cmp;
+      return [...base].sort((a, b) => {
+        const av = sortValue(a, sortColumn), bv = sortValue(b, sortColumn);
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+        return sortDirection === 'asc' ? cmp : -cmp;
+      });
     }
-    // Default, with nothing explicitly chosen: VIPs float to the top, then
-    // newest-first — so a fresh batch of imported leads shows up front,
-    // not buried at the bottom under everything already worked.
-    if (a.isVip !== b.isVip) return a.isVip ? -1 : 1;
-    return b.createdAt.localeCompare(a.createdAt);
-  });
+    // Always: the latest lead on top. In "All leads" the UK ones come first (still newest on top inside).
+    return sortNewest(base, { ukFirst: tab === 'all' && ukFirst });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabLeads, presets, search, sortColumn, sortDirection, ukFirst, tab, nowMs, todayStr, team]);
 
-  const PAGE_SIZE = 30;
-  const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageStart = (page - 1) * PAGE_SIZE;
+  const pageStart = (Math.min(page, totalPages) - 1) * PAGE_SIZE;
   const paginated = filtered.slice(pageStart, pageStart + PAGE_SIZE);
-  useEffect(() => { setPage(1); }, [countryFilter, dueOnly, newTodayOnly, vipOnly, engagementDueOnly, search]);
+  useEffect(() => { setPage(1); }, [tab, presets, search, sortColumn, sortDirection, ukFirst]);
+
+  function togglePreset(p: Preset | 'engagement') {
+    setPresets(prev => { const n = new Set(prev); n.has(p) ? n.delete(p) : n.add(p); return n; });
+  }
+  function go(t: LeadTab, preset?: Preset) {
+    setTab(t); setViewMode('list'); setSearch('');
+    setPresets(preset ? new Set([preset]) : new Set());
+  }
 
   function updateStage(id: string, stage: Lead['stage']) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, stage } : l));
     logActivity(`Lead moved to ${stage}`);
     if (stage === 'Lost') setLostReasonFor(id);
   }
-  function setFollowUp(id: string, date: string) {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, nextFollowUp: date } : l));
-  }
+  const setFollowUp = (id: string, date: string) => setLeads(prev => prev.map(l => l.id === id ? { ...l, nextFollowUp: date } : l));
+  const assignTo = (id: string, staffId: string) => setLeads(prev => prev.map(l => l.id === id ? { ...l, assignedTo: staffId } : l));
+  const toggleVip = (id: string) => setLeads(prev => prev.map(x => x.id === id ? { ...x, isVip: !x.isVip } : x));
   function toggleSelect(id: string) {
     setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
   function toggleSelectAll() {
-    // Select-all only applies to the current page — silently selecting all
-    // 200+ leads across every page would be a surprising, risky footgun for
-    // whatever bulk action comes next.
+    // Select-all only applies to the current page — silently selecting hundreds of
+    // leads across every page would be a risky footgun for the bulk action that follows.
     const pageIds = paginated.map(l => l.id);
     const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.has(id));
     setSelected(prev => {
@@ -156,263 +170,239 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
       return next;
     });
   }
-
   const selectedLeads = leads.filter(l => selected.has(l.id));
+  const detailsLead = detailsId ? leads.find(l => l.id === detailsId) || null : null;
 
   function exportLeads() {
-    const ok = exportToCsv('goglobe-leads', leads.map(l => ({
-      Name: l.name, Phone: l.phone, Source: l.source, Campaign: l.campaign, Destination: l.destination,
+    const ok = exportToCsv('goglobe-leads', sortNewest(leads, { ukFirst: true }).map(l => ({
+      Name: l.name, Phone: l.phone, Country: l.destination, City: cityOf(l), Source: l.source, Campaign: l.campaign,
       'Visa Type': l.visaType, Stage: l.stage, 'Assigned To': consultantName(l.assignedTo),
       'Created': l.createdAt, 'Next Follow-up': l.nextFollowUp, 'Last Contacted': l.lastContacted, Notes: l.notes,
     })));
     if (!ok) toast('No leads yet to export');
   }
 
+  function onDetailAction(l: Lead, a: DetailAction) {
+    if (a === 'messages') setMsgLead(l);
+    else if (a === 'materials') setShowMaterialsFor(l.id);
+    else if (a === 'escalate') setEscalateFor(l.id);
+    else if (a === 'resolve') setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x));
+    else if (a === 'visit') setScheduleVisitFor(l.id);
+    else if (a === 'tour') setTourLeadId(l.id);
+  }
+
+  const waHref = (l: Lead) => waLink(l.phone, pickFollowUpMessage(l, followUpTemplates));
+  const topBtn: React.CSSProperties = { background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,.55)', borderRadius: 6, fontWeight: 700, fontSize: 12.5, padding: '7px 12px', cursor: 'pointer' };
+  const chip = (on: boolean, color: string): React.CSSProperties => ({
+    background: on ? color : '#fff', color: on ? '#fff' : '#33445C', border: `1px solid ${on ? color : '#C5CCD8'}`,
+    borderRadius: 999, fontWeight: 700, fontSize: 12, padding: '5px 12px', cursor: 'pointer', whiteSpace: 'nowrap',
+  });
+  const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: THEME.teal, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', padding: '4px 6px' };
+  const isList = tab !== 'dashboard';
+
+  const tabNumbers = (t: LeadTab) => {
+    if (t === 'dashboard') return null;
+    const s = t === 'all' ? all : by[t as CountryGroup];
+    return s;
+  };
+
   return (
-    <div>
-      <SectionHead title="All leads" count={`${leads.length} total`} action={
-        <div className="flex gap-2 ml-auto">
-          <button className="btn" onClick={exportLeads}>Export CSV</button>
-          <button className="btn" onClick={() => setShowImport(true)}>Import CSV</button>
-          <button className="btn" onClick={() => setShowSheetSync(true)}>Sync from Google Sheet</button>
-          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New lead</button>
+    <div className="arial-scope" data-testid="leads-root" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      {/* Title bands, like the Go Globe lead sheet */}
+      <div style={{ background: THEME.navy, color: '#fff', borderRadius: '10px 10px 0 0', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 380px', minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '.01em' }}>GO GLOBE CONSULTANTS — CLIENT LEAD MANAGEMENT</div>
         </div>
-      } />
-
-      <input
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        placeholder="Search by name or phone number…"
-        className="mb-3.5"
-        style={{ maxWidth: 360 }}
-      />
-
-      {countryCounts.length > 0 && (
-        <div className="card mb-3.5">
-          <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)] mb-2">Interest by country — click to filter</div>
-          <div className="flex flex-wrap gap-2">
-            <button className="btn btn-sm" style={countryFilter === null ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setCountryFilter(null)}>All ({leads.length})</button>
-            {countryCounts.map(c => (
-              <button key={c.dest} className="btn btn-sm" style={countryFilter === c.dest ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setCountryFilter(c.dest === countryFilter ? null : c.dest)}>
-                {c.dest} ({c.count})
-              </button>
-            ))}
-          </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button style={{ ...topBtn, background: '#fff', color: THEME.navy, border: '1px solid #fff' }} onClick={() => setShowNew(true)}>+ New lead</button>
+          <button style={topBtn} onClick={() => setShowSheetSync(true)}>Sync from Google Sheet</button>
+          <button style={topBtn} onClick={() => setShowImport(true)}>Import CSV</button>
+          <button style={topBtn} onClick={exportLeads}>Export CSV</button>
         </div>
-      )}
-
-      <div className="flex items-center gap-2.5 mb-3.5 flex-wrap">
-        <button className="btn btn-sm" style={dueOnly ? { background: 'var(--red)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setDueOnly(!dueOnly)}>
-          Follow-ups due {dueCount > 0 && `(${dueCount})`}
-        </button>
-        <button className="btn btn-sm" style={newTodayOnly ? { background: 'var(--green)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setNewTodayOnly(!newTodayOnly)}>
-          New today {newTodayCount > 0 && `(${newTodayCount})`}
-        </button>
-        <button className="btn btn-sm" style={vipOnly ? { background: 'var(--gold)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setVipOnly(!vipOnly)}>
-          ★ VIP only
-        </button>
-        <button className="btn btn-sm" style={engagementDueOnly ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}} onClick={() => setEngagementDueOnly(!engagementDueOnly)}>
-          Due for engagement {engagementDueCount > 0 && `(${engagementDueCount})`}
-        </button>
-        <button className="btn btn-sm" onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')}>
-          {viewMode === 'list' ? 'Calendar view' : 'List view'}
-        </button>
-        <button className="btn btn-sm" onClick={() => setShowCountryNotes(true)}>Country updates</button>
-        <button className="btn btn-sm" onClick={() => setShowTemplates(true)}>Follow-up messages</button>
-        {selected.size > 0 && (
-          <>
-            <button className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} onClick={() => setShowQueue(true)}>
-              WhatsApp follow-up ({selected.size} selected)
-            </button>
-            <button className="btn btn-sm" style={{ background: 'var(--navy)', color: '#fff' }} onClick={() => setShowEngagement(true)}>
-              Send engagement update ({selected.size} selected)
-            </button>
-            <select className="btn btn-sm" defaultValue="" onChange={e => {
-              if (!e.target.value) return;
-              setLeads(prev => prev.map(l => selected.has(l.id) ? { ...l, assignedTo: e.target.value } : l));
-              toast(`Assigned ${selected.size} lead${selected.size === 1 ? '' : 's'}`);
-              setSelected(new Set());
-              e.target.value = '';
-            }}>
-              <option value="">Assign {selected.size} selected to…</option>
-              {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </>
-        )}
+      </div>
+      <div style={{ background: THEME.teal, color: '#fff', fontSize: 12.5, padding: '7px 18px' }} data-testid="leads-subbar">
+        Leads • Follow-ups • Assignments • Client profile &nbsp;|&nbsp; <b>{all.total}</b> leads &nbsp;·&nbsp; <b>{all.fresh}</b> new &nbsp;·&nbsp; <b>{all.waiting}</b> not contacted &nbsp;·&nbsp; <b>{all.due}</b> follow-ups due
       </div>
 
-      {viewMode === 'calendar' && <FollowUpCalendar leads={leads} />}
+      {/* Country tabs: UK first, with the numbers that matter on each */}
+      <div role="tablist" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 0, background: '#E4E9F0', borderLeft: '1px solid #D5DCE6', borderRight: '1px solid #D5DCE6' }}>
+        {TABS.map(t => {
+          const s = tabNumbers(t);
+          const on = tab === t;
+          const accent = t === 'UK' ? THEME.uk.solid : t === 'Schengen' ? THEME.schengen.solid : t === 'Other' ? THEME.other.solid : THEME.navy;
+          return (
+            <button key={t} role="tab" aria-selected={on} data-testid={`tab-${t}`} onClick={() => go(t)}
+              style={{ textAlign: 'left', cursor: 'pointer', border: 'none', borderTop: `4px solid ${on ? accent : 'transparent'}`, borderRight: '1px solid #D5DCE6', background: on ? '#fff' : t === 'UK' ? '#FFF8E1' : 'transparent', padding: '9px 14px 8px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13, color: on ? THEME.navy : '#33445C', whiteSpace: 'nowrap' }}>
+                {TAB_LABEL[t]}
+                {t === 'UK' && <span style={{ fontSize: 9, fontWeight: 800, color: '#7A5200', background: THEME.uk.bg, border: `1px solid ${THEME.uk.line}`, borderRadius: 4, padding: '0 4px', letterSpacing: '.05em' }}>PRIORITY</span>}
+              </div>
+              {s ? (
+                <>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: accent, lineHeight: 1.15 }} data-testid={`tab-count-${t}`}>{s.total}</div>
+                  <div style={{ fontSize: 11.5, color: '#51627A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {s.fresh > 0 ? <b style={{ color: THEME.fresh.fg }}>● {s.fresh} new</b> : <span>0 new</span>}{' · '}{s.due} due
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 22, lineHeight: 1.15 }}>📊</div>
+                  <div style={{ fontSize: 11.5, color: '#51627A' }}>Overview of everything</div>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {viewMode === 'list' && (!filtered.length ? (
-        <EmptyState title={leads.length ? 'No leads match this filter' : 'No leads yet'} body="Add your first enquiry from WhatsApp, the website form or a referral." />
-      ) : (
-        <div className="card p-0 overflow-auto">
-          <table style={{ minWidth: 1400 }}>
-            <thead><tr>
-              <th><input type="checkbox" className="!w-auto" checked={paginated.length > 0 && paginated.every(l => selected.has(l.id))} onChange={toggleSelectAll} /></th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('name')}>Name{sortArrow('name')}</th>
-              <th>Source / campaign</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('destination')}>Destination{sortArrow('destination')}</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('interest')}>Interest{sortArrow('interest')}</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('consultant')}>Consultant{sortArrow('consultant')}</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('stage')}>Stage{sortArrow('stage')}</th>
-              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('nextFollowUp')}>Next follow-up{sortArrow('nextFollowUp')}</th>
-              <th>Messages</th><th></th>
-            </tr></thead>
-            <tbody>
-              {paginated.map(l => {
-                const overdue = isOverdue(l);
-                return (
-                  <tr key={l.id} style={overdue ? { background: 'var(--red-50)' } : l.isVip ? { background: 'var(--gold-50)' } : undefined}>
-                    <td><input type="checkbox" className="!w-auto" checked={selected.has(l.id)} onChange={() => toggleSelect(l.id)} /></td>
-                    <td className="font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <button title={l.isVip ? 'Remove VIP' : 'Mark as VIP'} onClick={() => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, isVip: !x.isVip } : x))}
-                          style={{ color: l.isVip ? 'var(--gold)' : 'var(--line)', fontSize: 15, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>★</button>
-                        {l.name}
-                      </div>
-                      <div className="font-mono-ui text-xs text-[var(--muted)]">{l.phone}</div>
-                      <input className="!border-none !bg-transparent !p-0 text-[11px] text-[var(--faint)] mt-0.5" style={{ width: 110 }}
-                        value={l.occupation} placeholder="Occupation" onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, occupation: e.target.value } : x))} />
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full flex-none" style={{ background: 'var(--gold)' }} />
-                        <span className="font-medium">{l.source}</span>
-                      </div>
-                      {l.campaign && <div className="text-[11.5px] text-[var(--faint)] mt-0.5">{l.campaign}</div>}
-                      {l.sourceId && leadSources.find(x => x.id === l.sourceId) && <div className="text-[10.5px] text-[var(--faint)] mt-0.5">Form: {leadSources.find(x => x.id === l.sourceId)?.name}</div>}
-                    </td>
-                    <td>{l.destination}</td>
-                    <td>
-                      <select className="border-none bg-transparent font-medium p-0.5" style={{
-                        minWidth: 84,
-                        color: l.interestLevel === 'High' ? 'var(--red)' : l.interestLevel === 'Medium' ? 'var(--gold)' : l.interestLevel === 'Low' ? 'var(--blue)' : 'var(--muted)'
-                      }} value={l.interestLevel || 'Unrated'} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, interestLevel: e.target.value as Lead['interestLevel'] } : x))}>
-                        <option value="Unrated">Unrated</option>
-                        <option value="High">🔥 High</option>
-                        <option value="Medium">Medium</option>
-                        <option value="Low">Low</option>
-                      </select>
-                    </td>
-                    <td>
-                      <select className="border-none bg-transparent font-medium p-0.5" value={l.assignedTo || ''} onChange={e => setLeads(prev => prev.map(x => x.id === l.id ? { ...x, assignedTo: e.target.value } : x))}>
-                        <option value="">Unassigned</option>
-                        {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <select className="border-none bg-transparent font-medium p-0.5" value={l.stage} onChange={e => updateStage(l.id, e.target.value as Lead['stage'])}>
-                        {LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      {l.stage === 'Converted' && <PaymentBadge lead={l} cases={cases} />}
-                    </td>
-                    <td>
-                      <input type="date" className="font-mono-ui !w-36" value={l.nextFollowUp || ''} onChange={e => setFollowUp(l.id, e.target.value)} />
-                      {overdue && <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--red)' }}>Overdue</div>}
-                      {l.escalated && !l.escalationResolved && <div className="text-[10.5px] mt-0.5 font-medium" style={{ color: 'var(--gold)' }}>⚑ Escalated</div>}
-                    </td>
-                    <td>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setMsgLead(l)}>{l.messages.length} logged</button>
-                      {l.messages.length > 0 && <div className="text-[10.5px] text-[var(--faint)] mt-0.5">Follow-up #{l.messages.length}</div>}
-                    </td>
-                    <td>
-                      <div className="flex gap-1.5 justify-end flex-wrap">
-                        <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank"
-                          href={waLink(l.phone, pickFollowUpMessage(l, followUpTemplates))}>WhatsApp</a>
-                        <button className="btn btn-sm" onClick={() => onConvert(l)}>Convert</button>
-                        <select className="btn btn-sm" defaultValue="" onChange={e => {
-                          const action = e.target.value;
-                          e.target.value = '';
-                          if (action === 'materials') setShowMaterialsFor(l.id);
-                          else if (action === 'escalate') setEscalateFor(l.id);
-                          else if (action === 'resolve') setLeads(prev => prev.map(x => x.id === l.id ? { ...x, escalationResolved: true } : x));
-                          else if (action === 'visit') setScheduleVisitFor(l.id);
-                          else if (action === 'tour') setTourLeadId(l.id);
-                        }}>
-                          <option value="">More…</option>
-                          <option value="materials">Send materials</option>
-                          {(!l.escalated || l.escalationResolved) ? <option value="escalate">Escalate</option> : <option value="resolve">Mark resolved</option>}
-                          <option value="visit">Schedule visit</option>
-                          <option value="tour">Add to tour</option>
-                        </select>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ))}
-
-      {viewMode === 'list' && filtered.length > 0 && (
-        <div className="flex items-center justify-between mt-3.5">
-          <div className="text-[12.5px] text-[var(--muted)]">
-            Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>← Previous</button>
-            <span className="text-[12.5px] text-[var(--muted)] font-mono-ui">Page {page} of {totalPages}</span>
-            <button className="btn btn-sm" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next →</button>
-          </div>
-        </div>
+      {tab === 'dashboard' && (
+        <LeadsDashboard
+          leads={leads} leadSources={leadSources} team={team} nowMs={nowMs} todayStr={todayStr}
+          onGo={go} onOpenLead={l => setDetailsId(l.id)}
+          extra={<AgentPerformanceReport leads={leads} team={team} />}
+        />
       )}
 
-      <div className="mt-6">
-        <AgentPerformanceReport leads={leads} team={team} />
-      </div>
+      {isList && (
+        <>
+          <div style={{ background: '#fff', border: '1px solid #D5DCE6', borderTop: 'none', padding: '10px 14px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, phone or city…" style={{ width: 240, padding: '6px 10px', fontSize: 13 }} data-testid="leads-search" />
+            <button style={chip(presets.has('new'), THEME.fresh.line)} onClick={() => togglePreset('new')} data-testid="chip-new">New {counts.new > 0 && `(${counts.new})`}</button>
+            <button style={chip(presets.has('due'), '#B5433A')} onClick={() => togglePreset('due')} data-testid="chip-due">Follow-ups due {counts.due > 0 && `(${counts.due})`}</button>
+            <button style={chip(presets.has('waiting'), '#1F4E79')} onClick={() => togglePreset('waiting')} data-testid="chip-waiting">Not contacted {counts.waiting > 0 && `(${counts.waiting})`}</button>
+            <button style={chip(presets.has('unassigned'), '#9A6700')} onClick={() => togglePreset('unassigned')} data-testid="chip-unassigned">No consultant {counts.unassigned > 0 && `(${counts.unassigned})`}</button>
+            <button style={chip(presets.has('vip'), '#C9922E')} onClick={() => togglePreset('vip')}>★ VIP</button>
+            <button style={chip(presets.has('engagement'), THEME.navy)} onClick={() => togglePreset('engagement')}>Due for engagement {counts.engagement > 0 && `(${counts.engagement})`}</button>
+            <span style={{ flex: 1 }} />
+            <button style={linkBtn} onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')}>{viewMode === 'list' ? '📅 Calendar view' : '☰ List view'}</button>
+            <button style={linkBtn} onClick={() => setShowCountryNotes(true)}>🌍 Country updates</button>
+            <button style={linkBtn} onClick={() => setShowTemplates(true)}>✉ Follow-up messages</button>
+          </div>
+
+          <div style={{ background: '#F6F8FB', border: '1px solid #D5DCE6', borderTop: 'none', padding: '6px 14px', fontSize: 12, color: '#51627A', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-testid="sort-note">
+            {sortColumn
+              ? <>Sorted by {sortColumn === 'nextFollowUp' ? 'follow-up' : sortColumn === 'consultant' ? 'consultant' : sortColumn}. <button style={{ ...linkBtn, padding: 0 }} onClick={() => setSortColumn(null)}>↺ Back to latest first</button></>
+              : <><b style={{ color: THEME.fresh.fg }}>●</b> Latest leads are always on top; <span style={{ background: THEME.fresh.bg, border: `1px solid ${THEME.fresh.line}`, borderRadius: 4, padding: '0 6px', fontWeight: 700, color: THEME.fresh.fg }}>green rows</span> are new in the last 48 hours.</>}
+            {tab === 'all' && !sortColumn && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0, color: '#33445C', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                <input type="checkbox" checked={ukFirst} onChange={e => setUkFirst(e.target.checked)} data-testid="uk-first" /> UK first
+              </label>
+            )}
+            <span style={{ marginLeft: 'auto' }}>{filtered.length} shown</span>
+          </div>
+
+          {selected.size > 0 && (
+            <div style={{ background: '#EAF1FA', border: '1px solid #D5DCE6', borderTop: 'none', padding: '8px 14px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <b style={{ fontSize: 12.5, color: THEME.navy }}>{selected.size} selected</b>
+              <button className="btn btn-sm" style={{ background: '#1FA463', color: '#fff', borderColor: 'transparent' }} onClick={() => setShowQueue(true)}>WhatsApp follow-up</button>
+              <button className="btn btn-sm" style={{ background: THEME.navy, color: '#fff', borderColor: 'transparent' }} onClick={() => setShowEngagement(true)}>Send engagement update</button>
+              <select className="btn btn-sm" style={{ width: 'auto' }} defaultValue="" onChange={e => {
+                if (!e.target.value) return;
+                setLeads(prev => prev.map(l => selected.has(l.id) ? { ...l, assignedTo: e.target.value } : l));
+                toast(`Assigned ${selected.size} lead${selected.size === 1 ? '' : 's'}`);
+                setSelected(new Set());
+                e.target.value = '';
+              }}>
+                <option value="">Assign to…</option>
+                {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <button style={linkBtn} onClick={() => setSelected(new Set())}>Clear</button>
+            </div>
+          )}
+
+          {viewMode === 'calendar' && <div style={{ marginTop: 12 }}><FollowUpCalendar leads={tabLeads} /></div>}
+
+          {viewMode === 'list' && (!filtered.length ? (
+            <div style={{ background: '#fff', border: '1px solid #D5DCE6', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: '34px 16px', textAlign: 'center', color: '#51627A' }} data-testid="leads-empty">
+              <div style={{ fontWeight: 700, fontSize: 15, color: THEME.navy, marginBottom: 4 }}>{leads.length ? 'No leads match this view' : 'No leads yet'}</div>
+              <div style={{ fontSize: 13 }}>{leads.length ? 'Try another tab or clear the filters above.' : 'Add your first enquiry, or paste your ad sheet link under “Sync from Google Sheet”.'}</div>
+            </div>
+          ) : (
+            <LeadsTable
+              rows={paginated} startIndex={pageStart} showCountry={tab === 'all' || tab === 'Other'}
+              selected={selected} assignable={assignable.map((t: any) => ({ id: t.id, name: t.name }))}
+              nowMs={nowMs} todayStr={todayStr} leadSources={leadSources} cases={cases}
+              sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort}
+              onToggle={toggleSelect} onToggleAll={toggleSelectAll}
+              onStage={updateStage} onAssign={assignTo} onFollowUp={setFollowUp} onVip={toggleVip}
+              onDetails={l => setDetailsId(l.id)} onConvert={onConvert} waHref={waHref}
+            />
+          ))}
+
+          {viewMode === 'list' && filtered.length > 0 && (
+            <div className="flex items-center justify-between mt-3.5" style={{ fontSize: 12.5, color: '#51627A' }}>
+              <div>Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}</div>
+              <div className="flex items-center gap-2">
+                <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>← Previous</button>
+                <span>Page {Math.min(page, totalPages)} of {totalPages}</span>
+                <button className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next →</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       <Modal open={showNew} onClose={() => setShowNew(false)}>
-        <NewLeadForm onClose={() => setShowNew(false)} assignable={assignable} campaigns={campaigns} />
+        <div className="arial-scope"><NewLeadForm onClose={() => setShowNew(false)} assignable={assignable} campaigns={campaigns} defaultDest={tab === 'UK' || tab === 'Schengen' ? tab : undefined} /></div>
       </Modal>
 
       <Modal open={showImport} onClose={() => setShowImport(false)} wide>
-        <ImportLeadsForm onClose={() => setShowImport(false)} />
+        <div className="arial-scope"><ImportLeadsForm onClose={() => setShowImport(false)} /></div>
       </Modal>
 
       <Modal open={showSheetSync} onClose={() => setShowSheetSync(false)}>
-        <SheetSyncForm onClose={() => setShowSheetSync(false)} />
+        <div className="arial-scope"><SheetSyncForm onClose={() => setShowSheetSync(false)} /></div>
       </Modal>
 
       <Modal open={showTemplates} onClose={() => setShowTemplates(false)} wide>
-        <FollowUpTemplatesManager onClose={() => setShowTemplates(false)} />
+        <div className="arial-scope"><FollowUpTemplatesManager onClose={() => setShowTemplates(false)} /></div>
       </Modal>
 
       <Modal open={showEngagement} onClose={() => { setShowEngagement(false); }} wide>
-        {showEngagement && <EngagementBroadcast leads={leads.filter(l => selected.has(l.id))} onClose={() => { setShowEngagement(false); setSelected(new Set()); }} />}
+        {showEngagement && <div className="arial-scope"><EngagementBroadcast leads={leads.filter(l => selected.has(l.id))} onClose={() => { setShowEngagement(false); setSelected(new Set()); }} /></div>}
+      </Modal>
+
+      <Modal open={!!detailsLead} onClose={() => setDetailsId(null)}>
+        {detailsLead && (
+          <div className="arial-scope">
+            <LeadDetails lead={detailsLead} leadSources={leadSources} waHref={waHref(detailsLead)}
+              onAction={a => onDetailAction(detailsLead, a)}
+              onConvert={() => { setDetailsId(null); onConvert(detailsLead); }}
+              onClose={() => setDetailsId(null)} />
+          </div>
+        )}
       </Modal>
 
       <Modal open={!!msgLead} onClose={() => setMsgLead(null)}>
-        {msgLead && <MessageLog lead={msgLead} onClose={() => setMsgLead(null)} />}
+        {msgLead && <div className="arial-scope"><MessageLog lead={leads.find(x => x.id === msgLead.id) || msgLead} onClose={() => setMsgLead(null)} /></div>}
       </Modal>
 
       <Modal open={showQueue} onClose={() => { setShowQueue(false); setSelected(new Set()); }} wide>
-        {showQueue && <WhatsAppQueue leads={selectedLeads} onClose={() => { setShowQueue(false); setSelected(new Set()); }} />}
+        {showQueue && <div className="arial-scope"><WhatsAppQueue leads={selectedLeads} onClose={() => { setShowQueue(false); setSelected(new Set()); }} /></div>}
       </Modal>
 
       <Modal open={!!tourLeadId} onClose={() => setTourLeadId(null)}>
-        {tourLeadId && <AddToTourModal leadId={tourLeadId} onClose={() => setTourLeadId(null)} />}
+        {tourLeadId && <div className="arial-scope"><AddToTourModal leadId={tourLeadId} onClose={() => setTourLeadId(null)} /></div>}
       </Modal>
 
       <Modal open={showCountryNotes} onClose={() => setShowCountryNotes(false)} wide>
-        <CountryNotesPanel onClose={() => setShowCountryNotes(false)} />
+        <div className="arial-scope"><CountryNotesPanel onClose={() => setShowCountryNotes(false)} /></div>
       </Modal>
 
       <Modal open={!!lostReasonFor} onClose={() => setLostReasonFor(null)}>
-        {lostReasonFor && <LostReasonForm leadId={lostReasonFor} onClose={() => setLostReasonFor(null)} />}
+        {lostReasonFor && <div className="arial-scope"><LostReasonForm leadId={lostReasonFor} onClose={() => setLostReasonFor(null)} /></div>}
       </Modal>
 
       <Modal open={!!escalateFor} onClose={() => setEscalateFor(null)}>
-        {escalateFor && <EscalateForm leadId={escalateFor} onClose={() => setEscalateFor(null)} />}
+        {escalateFor && <div className="arial-scope"><EscalateForm leadId={escalateFor} onClose={() => setEscalateFor(null)} /></div>}
       </Modal>
 
       <Modal open={!!showMaterialsFor} onClose={() => setShowMaterialsFor(null)}>
-        {showMaterialsFor && <SendMaterialsForm leadId={showMaterialsFor} onClose={() => setShowMaterialsFor(null)} />}
+        {showMaterialsFor && <div className="arial-scope"><SendMaterialsForm leadId={showMaterialsFor} onClose={() => setShowMaterialsFor(null)} /></div>}
       </Modal>
 
       <Modal open={!!scheduleVisitFor} onClose={() => setScheduleVisitFor(null)}>
-        {scheduleVisitFor && <ScheduleVisitForm leadId={scheduleVisitFor} onClose={() => setScheduleVisitFor(null)} />}
+        {scheduleVisitFor && <div className="arial-scope"><ScheduleVisitForm leadId={scheduleVisitFor} onClose={() => setScheduleVisitFor(null)} /></div>}
       </Modal>
     </div>
   );
@@ -510,12 +500,13 @@ function pickFollowUpMessage(lead: Lead, templates: FollowUpTemplate[]): string 
   return `Hello ${lead.name}, this is GoGlobe Consultant regarding your ${lead.destination} visa enquiry. Is now a good time to talk?`;
 }
 
-function NewLeadForm({ onClose, assignable, campaigns }: any) {
+function NewLeadForm({ onClose, assignable, campaigns, defaultDest }: any) {
   const { leads, cases, setLeads, logActivity } = useAppData();
   const toast = useToast();
   const [name, setName] = useState(''); const [phone, setPhone] = useState('');
   const [source, setSource] = useState('WhatsApp'); const [campaign, setCampaign] = useState('');
-  const [dest, setDest] = useState<string>(DESTINATIONS[0]); const [visaType, setVisaType] = useState(visaTypesFor(DESTINATIONS[0])[0]);
+  const [dest, setDest] = useState<string>(defaultDest || DESTINATIONS[0]); const [visaType, setVisaType] = useState(visaTypesFor(defaultDest || DESTINATIONS[0])[0]);
+  const [city, setCity] = useState('');
   const [assignedTo, setAssignedTo] = useState(assignable[0]?.id || ''); const [notes, setNotes] = useState('');
   const [nextFollowUp, setNextFollowUp] = useState(today());
 
@@ -527,7 +518,8 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
     if (!name.trim()) { toast('Enter a name'); return; }
     setLeads((prev: Lead[]) => [...prev, {
       id: genId('ld'), name, phone, source, campaign, destination: dest, visaType, stage: 'New',
-      assignedTo, createdAt: today(), notes, messages: [], nextFollowUp, lastContacted: '',
+      assignedTo, createdAt: today(), receivedAt: new Date().toISOString(), ...(city.trim() ? { city: city.trim() } : {}),
+      notes, messages: [], nextFollowUp, lastContacted: '',
       escalated: false, escalationReason: '', escalationResolved: false, lostReason: '',
       interestLevel: 'Unrated', isVip: false, occupation: '', lastEngagementSent: '',
     }]);
@@ -576,12 +568,15 @@ function NewLeadForm({ onClose, assignable, campaigns }: any) {
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
+        <Field label="City"><input value={city} onChange={e => setCity(e.target.value)} placeholder="e.g. Lahore" /></Field>
+        <Field label="Next follow-up"><input type="date" value={nextFollowUp} onChange={e => setNextFollowUp(e.target.value)} /></Field>
+      </div>
+      <div className="grid grid-cols-1 gap-3">
         <Field label="Assign to">
           <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)}>
             {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name} — {t.role}</option>)}
           </select>
         </Field>
-        <Field label="Next follow-up"><input type="date" value={nextFollowUp} onChange={e => setNextFollowUp(e.target.value)} /></Field>
       </div>
       <Field label="Notes"><textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></Field>
       <ModalFoot>

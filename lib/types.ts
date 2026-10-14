@@ -23,6 +23,10 @@ export interface Lead {
   lastEngagementSent: string;
   // The Facebook lead id from the sheet (e.g. "l:961953543161253") — stops the same lead being added twice.
   externalId?: string;
+  // The exact moment the lead came in (ISO time). `createdAt` is only the day.
+  // Newest-first lists and the "NEW" highlight use this when it is there.
+  receivedAt?: string;
+  city?: string;
   // Which lead source (ad form link) brought this lead in, and what the person
   // answered on that form, question by question.
   sourceId?: string;

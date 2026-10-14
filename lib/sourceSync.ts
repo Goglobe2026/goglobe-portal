@@ -1,7 +1,7 @@
-import { readCollection, updateCollectionSync, readJsonFile, writeJsonFile, readRaw } from './store';
+import { readCollection, updateCollectionSync, readJsonFile, writeJsonFile, readRaw, writeRaw } from './store';
 import { parseCsv } from './csv';
 import { buildLeadsFromRows, sheetCsvUrl } from './leadImport';
-import { today } from './constants';
+import { today, genId } from './constants';
 import { ensureCampaignsFor } from './campaignAuto';
 import type { Lead, LeadSource } from './types';
 
@@ -80,9 +80,10 @@ export async function fetchSheet(link: string): Promise<{ headers: string[]; row
 }
 
 // Brings one sheet's leads in. `src` is null for an old-style plain link.
-async function pull(link: string, label: string, src: LeadSource | null, sinceDays?: number): Promise<SyncOutcome> {
+type Fetched = Awaited<ReturnType<typeof fetchSheet>>;
+async function pull(link: string, label: string, src: LeadSource | null, sinceDays?: number, prefetched?: Fetched): Promise<SyncOutcome> {
   const out: SyncOutcome = { sourceId: src?.id || '', label, rows: 0, imported: 0, duplicates: 0, incomplete: 0, tooOld: 0, tagged: 0, ...(src ? {} : { legacy: true }) };
-  const got = await fetchSheet(link);
+  const got = prefetched || await fetchSheet(link);
   if ('error' in got) { out.error = got.error; record(out); return out; }
   out.rows = got.rows.length;
   if (!src && got.formName) out.label = got.formName;
@@ -121,7 +122,7 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-const syncSourceRaw = (src: LeadSource, sinceDays?: number) => pull(src.url, src.name, src, sinceDays ?? src.sinceDays);
+const syncSourceRaw = (src: LeadSource, sinceDays?: number, prefetched?: Fetched) => pull(src.url, src.name, src, sinceDays ?? src.sinceDays, prefetched);
 export const syncSource = (src: LeadSource, sinceDays?: number) => exclusive(() => syncSourceRaw(src, sinceDays));
 
 // Everything the portal knows about: every active source, then any old-style
@@ -142,10 +143,25 @@ async function syncAllRaw(opts: { sinceDays?: number; auto?: boolean } = {}): Pr
   if (!opts.auto) {
     const have = new Set(sources.map(s => sheetCsvUrl(s.url, sheetsBase()).url).filter(Boolean));
     const legacy = readRaw('sheetsyncurl', '').split(/\s*\n\s*/).map(s => s.trim()).filter(Boolean);
+    let remaining = legacy.slice();
     for (const link of legacy) {
       const conv = sheetCsvUrl(link, sheetsBase());
       if (conv.url && have.has(conv.url)) continue;
-      out.push(await pull(link, link.slice(0, 60), null, opts.sinceDays));
+      const got = await fetchSheet(link);
+      if ('error' in got) { out.push(await pull(link, link.slice(0, 60), null, opts.sinceDays, got)); continue; }
+      // A link typed into the old "Sync from Google Sheet" box becomes a lead source by
+      // itself, named after the ad form in the sheet — so every form shows up under Lead
+      // Sources, and the automatic timer keeps it up to date, without anyone converting it.
+      const names = new Set((readCollection('leadsources') as LeadSource[]).map(x => x.name.toLowerCase()));
+      const base = got.formName || `Imported sheet ${names.size + 1}`;
+      let name = base, n = 2;
+      while (names.has(name.toLowerCase())) name = `${base} (${n++})`;
+      const src: LeadSource = { id: genId('ls'), name, country: '', campaign: '', url: link, active: true, sinceDays: opts.sinceDays ?? 30, createdAt: today() };
+      updateCollectionSync('leadsources', cur => [...cur, src]);
+      remaining = remaining.filter(x => x !== link);
+      await writeRaw('sheetsyncurl', remaining.join('\n'));
+      if (conv.url) have.add(conv.url);
+      out.push(await syncSourceRaw(src, opts.sinceDays ?? src.sinceDays, got));
     }
   }
   return out;

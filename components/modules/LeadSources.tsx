@@ -6,6 +6,7 @@ import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState } from '@/
 import { useToast } from '@/components/ui/Toast';
 import { sourceStats, leadPayment, type SourceStats } from '@/lib/leadStats';
 import { sheetCsvUrl } from '@/lib/leadImport';
+import { groupOf, groupLook, groupRank, sourceGroup, dominantCountry, agoText, sortNewest } from '@/lib/leadView';
 import type { LeadSource } from '@/lib/types';
 
 // Lead Sources: one Google Sheet link per ad form. Every Facebook / Instagram
@@ -134,8 +135,11 @@ function LeadSourcesInner() {
     } catch { toast('Could not reach the server'); }
   }
 
+  // UK forms first (the priority market), then Schengen, then the rest — biggest first inside each.
   const rows = useMemo(
-    () => leadSources.map(src => ({ src, st: sourceStats(src, leads, campaigns, cases, leadSources) })),
+    () => leadSources
+      .map(src => ({ src, st: sourceStats(src, leads, campaigns, cases, leadSources), g: sourceGroup(src, leads), newest: sortNewest(leads.filter(l => l.sourceId === src.id))[0] }))
+      .sort((a, b) => groupRank(a.g) - groupRank(b.g) || b.st.leads - a.st.leads),
     [leadSources, leads, campaigns, cases],
   );
   const unlinked = useMemo(() => sourceStats(null, leads, campaigns, cases, leadSources), [leads, campaigns, cases, leadSources]);
@@ -148,14 +152,15 @@ function LeadSourcesInner() {
   const byCountry = useMemo(() => {
     const m = new Map<string, { country: string; sources: number; leads: number; contacted: number; converted: number; spend: number; revenue: number; outstanding: number }>();
     for (const { src, st } of rows) {
-      const key = src.country || 'Not set';
+      const key = src.country || dominantCountry(src, leads) || 'Not set';
       const cur = m.get(key) || { country: key, sources: 0, leads: 0, contacted: 0, converted: 0, spend: 0, revenue: 0, outstanding: 0 };
       cur.sources++; cur.leads += st.leads; cur.contacted += st.contacted; cur.converted += st.converted;
       cur.spend += st.spend; cur.revenue += st.revenue; cur.outstanding += st.outstanding;
       m.set(key, cur);
     }
-    return [...m.values()].sort((a, b) => b.leads - a.leads);
-  }, [rows]);
+    const rank = (c: string) => (c === 'UK' ? 0 : c === 'Schengen' ? 1 : 2);
+    return [...m.values()].sort((a, b) => rank(a.country) - rank(b.country) || b.leads - a.leads);
+  }, [rows, leads]);
 
   // Links typed into the older "Sync from Google Sheet" box that are not lead sources yet.
   const legacyLinks = useMemo(() => {
@@ -248,13 +253,15 @@ function LeadSourcesInner() {
           <table className="campaigns-table">
             <thead><tr><th>Ad form</th><th>Leads</th><th>Contacted</th><th>Clients</th><th>Cost/lead</th><th>Cost/client</th><th>Client payments</th><th>Collected / owed</th><th></th></tr></thead>
             <tbody>
-              {rows.map(({ src, st }) => {
+              {rows.map(({ src, st, g, newest }) => {
                 const s = info?.status?.[src.id];
                 const paused = src.active === false;
+                const look = groupLook(g);
                 return (
-                  <tr key={src.id} style={paused ? { opacity: 0.7 } : undefined}>
-                    <td className="font-medium" style={{ minWidth: 230 }}>
+                  <tr key={src.id} data-group={g} style={paused ? { opacity: 0.7 } : undefined}>
+                    <td className="font-medium" style={{ minWidth: 230, boxShadow: `inset 5px 0 0 ${look.solid}` }}>
                       <button className="underline decoration-[var(--line)] text-left" onClick={() => setOpenId(src.id)}>{src.name}</button>
+                      {g === 'UK' && <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 800, color: '#7A5200', background: look.bg, border: `1px solid ${look.line}`, borderRadius: 4, padding: '0 5px', letterSpacing: '.05em' }}>PRIORITY</span>}
                       <div className="mt-0.5 text-[11.5px] text-[var(--muted)]">{src.country || 'Country from the sheet'} · {src.campaign || 'Campaign from the sheet'}</div>
                       <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                         {paused && <Pill text="Paused" tone="grey" />}
@@ -262,6 +269,7 @@ function LeadSourcesInner() {
                         {!paused && s && s.ok && <Pill text="Working" tone="green" />}
                         {!paused && s && !s.ok && <Pill text="Problem" tone="red" />}
                         {s && <span className="text-[11px] text-[var(--faint)]">{s.ok ? `checked ${ago(s.at)} · ${s.rows} rows in sheet` : `tried ${ago(s.at)}`}</span>}
+                        {newest && <span className="text-[11px] text-[var(--faint)]">· latest lead {agoText(newest, Date.now(), today())}</span>}
                       </div>
                       {s && !s.ok && s.error && <div className="text-[11.5px] mt-1" style={{ color: 'var(--red)', maxWidth: 360 }}>{s.error}</div>}
                     </td>
