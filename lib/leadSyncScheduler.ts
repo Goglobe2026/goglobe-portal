@@ -1,6 +1,7 @@
 import { runAutoIfDue } from './sourceSync';
 import { runMetaIfDue } from './metaAds';
 import { snapshotPerfIfDue } from './perfServer';
+import { ensureQueryNos, postOutlaysIfDue } from './caseAuto';
 
 // Starts once with the server and checks every minute whether the lead sources
 // are due for their automatic pull. Kept on globalThis so a hot reload cannot
@@ -14,6 +15,7 @@ export function startLeadSyncScheduler() {
     runAutoIfDue().catch(e => console.error('[lead-sync] error', e));
     runMetaIfDue().catch(e => console.error('[meta-ads] error', e));
     try { snapshotPerfIfDue(); } catch (e) { console.error('[perf-watch] error', e); }
+    try { ensureQueryNos(); postOutlaysIfDue(); } catch (e) { console.error('[cases] auto error', e); }
   };
   G.__goglobeLeadSyncTimer = setInterval(tick, every);
   setTimeout(tick, Math.min(every, 20_000));

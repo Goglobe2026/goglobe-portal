@@ -3,7 +3,8 @@ import { money } from '@/lib/constants';
 import { leadPayment } from '@/lib/leadStats';
 import { THEME, STATUS_LOOK, groupOf, groupLook, isFresh, followState, cityOf, agoText } from '@/lib/leadView';
 import { LEAD_STAGES } from '@/lib/constants';
-import type { Lead, LeadSource, Case } from '@/lib/types';
+import type { Lead, LeadSource, Case, Specialty } from '@/lib/types';
+import { rankStaff, fitFor, deskOf } from '@/lib/specialty';
 
 // The leads list, laid out like the Go Globe sheet: one row per client, fixed
 // columns that fit the screen without sideways scrolling, a coloured status
@@ -22,7 +23,7 @@ function PaymentBadge({ lead, cases }: { lead: Lead; cases: Case[] }) {
   );
 }
 
-export interface Assignee { id: string; name: string }
+export interface Assignee { id: string; name: string; specialties?: Specialty[] }
 export interface LeadsTableProps {
   rows: Lead[];
   startIndex: number;
@@ -50,6 +51,21 @@ export interface LeadsTableProps {
 const TH: React.CSSProperties = { color: '#fff', fontWeight: 700, fontSize: 12, textAlign: 'left', padding: '10px 6px', borderBottom: 'none', textTransform: 'none', letterSpacing: 0, whiteSpace: 'nowrap' };
 const TD: React.CSSProperties = { padding: '9px 6px', borderBottom: '1px solid #E3E8EF', verticalAlign: 'middle', fontSize: 13, overflow: 'hidden' };
 const pickStyle: React.CSSProperties = { width: '100%', padding: '5px 6px', fontSize: 12.5, borderRadius: 6, border: '1px solid #D5DCE6', background: '#fff', color: '#1B2A41' };
+
+// The people a lead can go to. When nobody has a desk set, a plain list; otherwise the
+// destination's specialists first, then all-rounders, then the other desks.
+export function AssigneeOptions({ people, destination }: { people: Assignee[]; destination: string }) {
+  if (!people.some(t => t.specialties && t.specialties.length)) return <>{people.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</>;
+  const ranked = rankStaff(people, destination);
+  const desk = deskOf(destination);
+  const groups: { label: string; fit: 'specialist' | 'allrounder' | 'other' }[] = [
+    { label: desk ? `${desk} desk` : 'Specialists', fit: 'specialist' }, { label: 'All-rounders', fit: 'allrounder' }, { label: 'Other desks', fit: 'other' },
+  ];
+  return <>{groups.map(g => {
+    const list = ranked.filter(t => fitFor(t, destination) === g.fit);
+    return list.length ? <optgroup key={g.fit} label={g.label}>{list.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null;
+  })}</>;
+}
 
 export function LeadsTable(p: LeadsTableProps) {
   const sortMark = (c: string) => (p.sortColumn === c ? (p.sortDirection === 'asc' ? ' ▲' : ' ▼') : '');
@@ -130,7 +146,7 @@ export function LeadsTable(p: LeadsTableProps) {
                   <select value={l.assignedTo || ''} onChange={e => p.onAssign(l.id, e.target.value)}
                     style={{ ...pickStyle, ...(!l.assignedTo && !['Converted', 'Lost'].includes(l.stage) ? { color: '#B5433A', borderColor: '#E8B4AF' } : {}) }}>
                     <option value="">Unassigned</option>
-                    {p.assignable.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    <AssigneeOptions people={p.assignable} destination={l.destination} />
                   </select>
                 </td>
                 <td style={TD}>

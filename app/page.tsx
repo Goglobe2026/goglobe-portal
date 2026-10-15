@@ -19,6 +19,8 @@ import { Accounts } from '@/components/modules/Accounts';
 import { Reports } from '@/components/modules/Reports';
 import { ProfitGrowth } from '@/components/modules/ProfitGrowth';
 import { MonthlyClosing } from '@/components/modules/MonthlyClosing';
+import { Payouts } from '@/components/modules/Payouts';
+import { SalesCoach } from '@/components/modules/SalesCoach';
 import { Payroll } from '@/components/modules/Payroll';
 import { BillingCenter } from '@/components/modules/BillingCenter';
 import { Complaints } from '@/components/modules/Complaints';
@@ -90,6 +92,7 @@ function PortalApp() {
       {tab === 'dashboard' && <Dashboard />}
       {tab === 'leads' && <Leads onConvert={goToCasesWithLead} />}
       {tab === 'leadsources' && <LeadSources />}
+      {tab === 'coach' && <SalesCoach admin />}
       {tab === 'campaigns' && <Campaigns />}
       {tab === 'adsmanager' && <AdsManager />}
       {tab === 'cases' && <Cases prefillFromLead={prefillLead} clearPrefill={() => setPrefillLead(null)} />}
@@ -101,6 +104,7 @@ function PortalApp() {
       {tab === 'accounts' && <Accounts />}
       {tab === 'reports' && <Reports />}
       {tab === 'closing' && <MonthlyClosing />}
+      {tab === 'payouts' && <Payouts />}
       {tab === 'profit' && <ProfitGrowth />}
       {tab === 'payroll' && <Payroll />}
       {tab === 'billing' && <BillingCenter />}

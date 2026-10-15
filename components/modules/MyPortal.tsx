@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { AnnouncementsPanel } from './Announcements';
 import { MyPerfCard } from './PerfWatch';
 import { TeamMessages } from './TeamMessages';
+import { SalesCoach } from './SalesCoach';
 import { unreadFor } from '@/lib/messages';
 import { PayslipHistory, lineNet } from './Payroll';
 import type { TeamMember, Lead } from '@/lib/types';
@@ -102,6 +103,13 @@ export function MyPortal() {
       <MyPerfCard staffId={t.id} />
 
       <MyMessagesSection staffId={t.id} />
+
+      {isSales && (
+        <>
+          <SectionHead title="Sales coach" count="what to do next with each lead, how to follow up and convert, posts you can send" />
+          <SalesCoach />
+        </>
+      )}
 
       <SectionHead title="Job description" />
       <div className="card text-[13px] leading-relaxed">{jd}</div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readCollection, writeCollection, readRaw, writeRaw, mergeIntoCollection, allHaveIds, updateCollectionSync } from '@/lib/store';
 import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 import type { CollectionName, TeamMember, Session, Case, PayRun, StaffTarget, TeamMessage } from '@/lib/types';
+import { ensureQueryNos, numberIncoming, postOutlaysIfDue } from '@/lib/caseAuto';
 
 const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook' | 'sheetsyncurl')[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
@@ -136,6 +137,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ coll
     return NextResponse.json(readRaw(collection, fallback));
   }
 
+  if (collection === 'cases') { try { ensureQueryNos(); postOutlaysIfDue(); } catch (e) { console.error('[cases] auto-number error', e); } }
+
   if (collection === 'team' && !admin) {
     const ownId = session.type === 'employee' ? session.staffId : null;
     return NextResponse.json(redactTeamForNonAdmin(readCollection('team'), ownId));
@@ -230,9 +233,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ coll
   } else if (collection === 'cases' && !admin) {
     if (!Array.isArray(incoming)) return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
     if (isMerge && allHaveIds(incoming)) {
-      mergeIntoCollection('cases', incoming, deleted, (inc, stored) => protectClosingFields(inc as Case[], stored as Case[]));
+      mergeIntoCollection('cases', incoming, deleted, (inc, stored) => numberIncoming(protectClosingFields(inc as Case[], stored as Case[]), stored as Case[]));
     } else {
-      updateCollectionSync('cases', stored => protectClosingFields(incoming as Case[], stored as Case[]));
+      updateCollectionSync('cases', stored => numberIncoming(protectClosingFields(incoming as Case[], stored as Case[]), stored as Case[]) as any);
+    }
+  } else if (collection === 'cases' && Array.isArray(incoming)) {
+    if (isMerge && allHaveIds(incoming)) {
+      mergeIntoCollection('cases', incoming, deleted, (inc, stored) => numberIncoming(inc as Case[], stored as Case[]));
+    } else {
+      updateCollectionSync('cases', stored => numberIncoming(incoming as Case[], stored as Case[]) as any);
     }
   } else if (isMerge && allHaveIds(incoming)) {
     mergeIntoCollection(collection as CollectionName, incoming, deleted);

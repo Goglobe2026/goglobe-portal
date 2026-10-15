@@ -119,6 +119,32 @@ export interface Case {
   // received on the file always fills the oldest unpaid part first. Missing =
   // no plan (one balance, with the optional promised date above).
   plan?: PlanPart[];
+  // Sequential query number (GG01, GG02, …) given to every case, in the order the
+  // cases were entered. Given by the server if a browser did not.
+  queryNo?: string;
+  // The query number of the existing client who recommended this one (if any).
+  referredByQueryNo?: string;
+  // Money that leaves our account on behalf of this client (embassy / appointment
+  // fee, courier…). Each one is added to Expenses by itself on its date.
+  outlays?: CaseOutlay[];
+  // The group tour this client (and the family) was added to from the case form.
+  tourId?: string;
+}
+
+// One payout for a client file. It becomes an expense of category "Embassy fees"
+// (or the category chosen) on its date; `posted` says that has happened.
+export interface CaseOutlay {
+  id: string;
+  label: string;           // "Appointment / embassy fee"
+  amount: number;          // PKR that actually leaves the account
+  date: string;            // YYYY-MM-DD it is (or was) paid
+  category?: string;       // expense category, default "Embassy fees"
+  currency?: string;       // when it was paid in another currency (GBP, EUR…)
+  foreignAmount?: number;
+  rate?: number;           // PKR for one unit of that currency, incl. bank charges
+  posted?: boolean;
+  txId?: string;
+  note?: string;
 }
 
 // What makes a part of the fee fall due.
@@ -177,6 +203,11 @@ export interface TourMember {
   totalDue: number;
   status: 'Registered' | 'Partially Paid' | 'Fully Paid' | 'Documentation Complete' | 'Travel Confirmed' | 'Cancelled';
   bookingDate: string;
+  // Set when the traveler was added from a visa case / family file: the case, the
+  // head of that family, and how many travel together (so a family shows as one group).
+  caseId?: string;
+  familyHead?: string;
+  familySize?: number;
 }
 
 export interface CountryNote {
@@ -420,7 +451,11 @@ export interface TeamMember {
   bankName?: string;
   accountNo?: string;
   payItems?: { categoryId: string; amount: number }[];
+  // Countries this person is an expert in. Empty / missing = handles everything.
+  specialties?: Specialty[];
 }
+
+export type Specialty = 'UK' | 'Europe' | 'Australia, US & Canada';
 
 export interface Transaction {
   id: string;

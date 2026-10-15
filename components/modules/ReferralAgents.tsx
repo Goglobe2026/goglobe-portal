@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, genId, today } from '@/lib/constants';
 import { overallCharge } from './Cases';
+import { caseCost } from '@/lib/caseBook';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
 import type { ReferralAgent } from '@/lib/types';
@@ -36,8 +37,8 @@ export function ReferralAgents() {
         <div className="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
           {referralAgents.map(a => {
             const linkedCases = cases.filter(c => c.referralAgentId === a.id);
-            const totalNetProfit = linkedCases.reduce((s, c) => s + Math.max(0, overallCharge(c) - c.costToExecute), 0);
-            const totalEarned = linkedCases.reduce((s, c) => s + Math.round(Math.max(0, overallCharge(c) - c.costToExecute) * (c.referralCommissionPercent / 100)), 0);
+            const totalNetProfit = linkedCases.reduce((s, c) => s + Math.max(0, overallCharge(c) - caseCost(c)), 0);
+            const totalEarned = linkedCases.reduce((s, c) => s + Math.round(Math.max(0, overallCharge(c) - caseCost(c)) * (c.referralCommissionPercent / 100)), 0);
             const totalPaid = linkedCases.reduce((s, c) => s + (c.referralCommissionPaid || 0), 0);
             const totalDue = Math.max(0, totalEarned - totalPaid);
             return (

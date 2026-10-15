@@ -1,11 +1,13 @@
 'use client';
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { money, fmtDate, genId, today, REGIONS, REGION_COUNTRIES } from '@/lib/constants';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } from '@/components/ui/Primitives';
 import { QrCode } from '@/components/ui/QrCode';
 import { useToast } from '@/components/ui/Toast';
-import type { GroupTour, TourMember } from '@/lib/types';
+import type { GroupTour, TourMember, Case } from '@/lib/types';
+import { travellersForCase, groupTravellers, peopleOnCase } from '@/lib/tourLink';
+import { sortLatest } from '@/lib/caseBook';
 import { readFileAsDataUrl, MAX_PDF_BYTES } from '@/lib/fileUpload';
 
 const TOUR_STATUSES = ['Open', 'Limited Seats', 'Full', 'Closed'] as const;
@@ -235,11 +237,14 @@ function EditTourForm({ tour, onClose }: { tour: GroupTour; onClose: () => void 
 }
 
 function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) {
-  const { groupTours, setGroupTours, tourMembers, setTourMembers, logActivity } = useAppData();
+  const { groupTours, setGroupTours, tourMembers, setTourMembers, logActivity, cases } = useAppData();
   const toast = useToast();
   const tour = groupTours.find(t => t.id === tourId)!;
   const members = tourMembers.filter(m => m.tourId === tourId);
+  const groups = groupTravellers(members);
+  const queryOf = (caseId?: string) => cases.find(x => x.id === caseId)?.queryNo || '';
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showFromCases, setShowFromCases] = useState(false);
   const [openMemberId, setOpenMemberId] = useState<string | null>(null);
   const [showEditTour, setShowEditTour] = useState(false);
 
@@ -282,7 +287,10 @@ function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) 
       </div>
 
       <SectionHead title="Registered travelers" count={`${members.length} in this group`} action={
-        <button className="btn btn-primary ml-auto" onClick={() => setShowAddMember(true)}>+ Add traveler</button>
+        <span className="ml-auto flex gap-2">
+          <button data-testid="tour-from-cases" className="btn" onClick={() => setShowFromCases(true)}>+ From a case / family</button>
+          <button className="btn btn-primary" onClick={() => setShowAddMember(true)}>+ Add traveler</button>
+        </span>
       } />
       {!members.length ? (
         <EmptyState title="No travelers registered yet" body="Add the first traveler to this tour to generate their verification code and QR." />
@@ -291,19 +299,32 @@ function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) 
           <table>
             <thead><tr><th>Traveler</th><th>Reference</th><th>Payment</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {members.map(m => (
-                <tr key={m.id}>
-                  <td className="font-medium">{m.name}<div className="font-mono-ui text-xs text-[var(--muted)]">{m.phone}</div></td>
-                  <td className="font-mono-ui text-xs">{m.referenceCode}</td>
-                  <td className="font-mono-ui text-xs">{money(m.paid)} / {money(m.totalDue)}</td>
-                  <td><Stamp text={m.status} /></td>
-                  <td>
-                    <div className="flex gap-1.5 justify-end">
-                      <button className="btn btn-sm" onClick={() => setOpenMemberId(m.id)}>View profile</button>
-                      <button className="btn btn-sm btn-ghost btn-danger" onClick={() => { setTourMembers(prev => prev.filter(x => x.id !== m.id)); toast('Traveler removed'); }}>Remove</button>
-                    </div>
-                  </td>
-                </tr>
+              {groups.map(g => (
+                <Fragment key={g.key}>
+                  {g.caseId && g.members.length > 1 && (
+                    <tr data-testid="tour-family-row" style={{ background: 'var(--gold-50)' }}>
+                      <td colSpan={5} style={{ fontSize: 12.5, fontWeight: 700, color: '#8a5a12' }}>
+                        FAMILY — {g.head} · {g.members.length} travelers{queryOf(g.caseId) ? ` · ${queryOf(g.caseId)}` : ''}
+                      </td>
+                    </tr>
+                  )}
+                  {g.members.map(m => (
+                    <tr key={m.id} data-testid="tour-member-row">
+                      <td className="font-medium" style={g.caseId && g.members.length > 1 ? { paddingLeft: 26 } : undefined}>{m.name}
+                        {m.caseId && g.members.length === 1 && queryOf(m.caseId) && <span className="ml-2 text-[11px] font-bold" style={{ color: '#8a5a12' }}>{queryOf(m.caseId)}</span>}
+                        <div className="font-mono-ui text-xs text-[var(--muted)]">{m.phone}</div></td>
+                      <td className="font-mono-ui text-xs">{m.referenceCode}</td>
+                      <td className="font-mono-ui text-xs">{money(m.paid)} / {money(m.totalDue)}</td>
+                      <td><Stamp text={m.status} /></td>
+                      <td>
+                        <div className="flex gap-1.5 justify-end">
+                          <button className="btn btn-sm" onClick={() => setOpenMemberId(m.id)}>View profile</button>
+                          <button className="btn btn-sm btn-ghost btn-danger" onClick={() => { setTourMembers(prev => prev.filter(x => x.id !== m.id)); toast('Traveler removed'); }}>Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -313,10 +334,80 @@ function TourDetail({ tourId, onBack }: { tourId: string; onBack: () => void }) 
       <Modal open={showAddMember} onClose={() => setShowAddMember(false)}>
         <AddMemberForm tour={tour} onClose={() => setShowAddMember(false)} />
       </Modal>
+      <Modal open={showFromCases} onClose={() => setShowFromCases(false)} wide>
+        {showFromCases && <AddFromCases tour={tour} onClose={() => setShowFromCases(false)} />}
+      </Modal>
       <Modal open={!!openMemberId} onClose={() => setOpenMemberId(null)} wide>
         {openMemberId && <MemberProfile memberId={openMemberId} tour={tour} onClose={() => setOpenMemberId(null)} />}
       </Modal>
     </div>
+  );
+}
+
+// Pick visa cases (single clients or whole family files) and put everyone on them on this tour.
+function AddFromCases({ tour, onClose }: { tour: GroupTour; onClose: () => void }) {
+  const { cases, setCases, tourMembers, setTourMembers, logActivity } = useAppData();
+  const toast = useToast();
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<string[]>([]);
+  const [limit, setLimit] = useState(60);
+  const onTourIds = new Set(tourMembers.filter(m => m.tourId === tour.id).map(m => m.id));
+  const rows = sortLatest(cases).map(c => {
+    const people = peopleOnCase(c);
+    const there = people.filter(p => onTourIds.has(`tmb_${c.id}_${p.personId}`)).length;
+    return { c, people: people.length, there };
+  });
+  const needle = q.trim().toLowerCase();
+  const shown = rows.filter(r => !needle || [r.c.name, r.c.queryNo || '', r.c.phone, r.c.destination, ...(r.c.familyMembers || []).map(m => m.name)].join(' ').toLowerCase().includes(needle));
+  const toggle = (id: string) => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const toAdd = picked.reduce((n, id) => { const r = rows.find(x => x.c.id === id); return n + (r ? r.people - r.there : 0); }, 0);
+  const free = tour.capacity - onTourIds.size;
+
+  function add() {
+    if (!picked.length) { toast('Tick at least one case'); return; }
+    let all: TourMember[] = [];
+    let current = tourMembers;
+    for (const id of picked) {
+      const c = cases.find(x => x.id === id); if (!c) continue;
+      const link = travellersForCase(c, tour, current, today());
+      all = all.concat(link.added); current = current.concat(link.added);
+    }
+    if (!all.length) { toast('Everyone on those cases is already on this tour'); return; }
+    setTourMembers(prev => { const have = new Set(prev.map(m => m.id)); return [...prev, ...all.filter(m => !have.has(m.id))]; });
+    const ids = new Set(picked);
+    setCases(prev => prev.map(c => ids.has(c.id) && c.tourId !== tour.id ? { ...c, tourId: tour.id } : c));
+    logActivity(`${all.length} traveler${all.length === 1 ? '' : 's'} added to ${tour.name} from ${picked.length} case${picked.length === 1 ? '' : 's'}`);
+    const over = Math.max(0, onTourIds.size + all.length - tour.capacity);
+    toast(`${all.length} traveler${all.length === 1 ? '' : 's'} added${over ? ` — tour is now ${over} over capacity` : ''}`);
+    onClose();
+  }
+
+  return (
+    <>
+      <ModalTitle>Add from cases — {tour.name}</ModalTitle>
+      <div className="text-[12.5px] text-[var(--muted)] -mt-1 mb-3">Tick a client or a family file: the head and every family member become travelers on this tour. People already on the tour are skipped. {free >= 0 ? `${free} seat${free === 1 ? '' : 's'} left.` : `Over capacity by ${-free}.`}</div>
+      <input data-testid="tour-case-search" placeholder="Search by name, GG number, phone or destination…" value={q} onChange={e => { setQ(e.target.value); setLimit(60); }} className="mb-2.5" />
+      <div className="overflow-auto rounded-[10px] border" style={{ borderColor: 'var(--line)', maxHeight: 360 }}>
+        {shown.length === 0 && <div className="p-4 text-[13px] text-[var(--muted)]">No case matches.</div>}
+        {shown.slice(0, limit).map(r => {
+          const done = r.there >= r.people;
+          return (
+            <label key={r.c.id} data-testid="tour-case-row" className="flex items-center gap-3 px-3 py-2 border-b text-[13px]" style={{ borderColor: 'var(--line)', opacity: done ? 0.55 : 1, cursor: done ? 'default' : 'pointer' }}>
+              <input type="checkbox" className="!w-auto" disabled={done} checked={picked.includes(r.c.id)} onChange={() => toggle(r.c.id)} />
+              <span className="font-mono-ui text-[12px]" style={{ width: 46, color: '#14213D', fontWeight: 700 }}>{r.c.queryNo || '—'}</span>
+              <span className="flex-1"><b>{r.c.name}</b>{r.people > 1 && <span className="ml-2 text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'var(--gold-50)', border: '1px solid #E8C784', color: '#8a5a12' }}>FAMILY · {r.people}</span>}
+                <span className="text-[var(--muted)]"> · {r.c.destination} · {r.c.visaType}</span></span>
+              <span className="text-[12px] text-[var(--muted)]">{done ? 'already on this tour' : r.there ? `${r.there} of ${r.people} on tour` : ''}</span>
+            </label>
+          );
+        })}
+        {shown.length > limit && <button type="button" className="btn btn-sm btn-ghost m-2" onClick={() => setLimit(l => l + 60)}>Show more ({shown.length - limit} left)</button>}
+      </div>
+      <ModalFoot>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button data-testid="tour-case-add" className="btn btn-primary" onClick={add}>{toAdd ? `Add ${toAdd} traveler${toAdd === 1 ? '' : 's'}` : 'Add to tour'}</button>
+      </ModalFoot>
+    </>
   );
 }
 

@@ -253,6 +253,78 @@ Many clients pay half now and the rest at the appointment or file collection.
   balances up 20% or more, cost per file up 25% or more, leads down 25% or more, or
   less than 40% of what was sold in the month collected in it.
 
+## Query numbers, case money, group tours and desks (latest update)
+
+* **Query numbers.** Every case gets the next number — GG01, GG02, GG03… — in the
+  order it is opened. The server hands them out, so two people adding cases at the same
+  moment can never get the same one, and a number never changes once given. Old cases
+  without one are numbered in the order they were opened. When a client comes through
+  someone you already served, pick that person's query number under *Referred by* in
+  the new-case form (the referral-agent field on the case file is still there for
+  outside agents).
+* **Cases are grouped by month, newest first.** The Cases page opens with the latest
+  month on top and, inside each month, the latest case first — each row shows its date
+  and query number.
+* **Money on a case — one form for a single client or a family.** Enter what the
+  client was charged, how much has been *received* and whether that payment covers
+  the service fee, the appointment charges or both. The form shows *received* and
+  *pending* straight away, and the pending part can follow a payment plan.
+  Costs you will pay for the file (embassy fee, courier, anything else) go in the
+  *Costs to pay* list: type the amount in PKR or in a foreign currency with the rate,
+  and give a date. When that date arrives the cost is posted to Expenses
+  automatically (once only — it can never be posted twice). A cost with no date is
+  posted when the case is saved.
+* **Month book (Cases, bottom of each month).** For the month: how many cases came in,
+  how many are still open and how many are closed; for every agent their cases,
+  business, sales closed and money collected; and the totals — *billed*, *our
+  business* (billed minus appointment charges that pass through), *paid so far* and
+  *pending* — and how much of the pending balance carries into the coming months.
+  "Closed" means the case is no longer Active.
+* **Upcoming Payouts (Finance).** What is going to leave the account — embassy and
+  appointment fees still to pay, salaries, case bonuses and referral commission —
+  against what clients are expected to pay, by month and, with the *Day* switch,
+  for any single day: how much came in that day from today's cases and from earlier
+  cases, and how much is still owed at the end of it. An *outlook* table shows each
+  month's money in, money out and what is left. Figures marked "estimate" are payroll
+  that has not been created yet.
+* **Group tours.** A family case can be put on a group tour straight from the new-case
+  form (tick *Add to a group tour*) or from the case file, and the whole family joins
+  as travellers with their reference codes. *Group Tours → Add from cases* does it the
+  other way round. Adding the same case twice never duplicates anyone, and a family
+  member added to the case later joins the tour when you add the case again.
+  Travellers are shown grouped by family.
+* **Desks (specialties).** In *HR* tick the desks a person covers: **UK**, **Europe**
+  (Schengen and Türkiye) and **Australia, US & Canada**. Nothing is blocked. The desk
+  decides who is *suggested first* when you assign a lead or a case, and the **Auto-assign
+  by desk** button on Leads gives every unassigned lead to the right desk's least busy
+  person. Someone with no desk ticked is an all-rounder.
+
+## Sales Coach (Marketing → Sales Coach, and inside every Sales agent's portal)
+
+* **What to do next.** Each agent sees their own leads sorted by what needs doing first:
+  new leads nobody has contacted, escalations, overdue follow-ups, interested clients
+  who have gone quiet. Every item has the reason, the steps, a ready WhatsApp message
+  and *+1 / +3 / +7 days*, which records the contact and sets the next follow-up date.
+* **Steps, not just a list.** *Follow-up steps* (six steps, day by day), *Convert a lead*
+  (seven steps, plus what to say when the client says the fee is high, "I will think",
+  another agent is cheaper, wants a guarantee, was refused before…), *Marketing routine*
+  (daily habits and a Monday–Saturday plan) and *Posts*.
+* **Posts.** A new ready-to-post text every day in English or Roman Urdu with the
+  agent's name and number: consultation offer, document checklist, myth-busting,
+  visa tip, referral request, client story. You can edit it, copy it or share it on
+  WhatsApp. You can send the post of the day to every sales agent — it appears in
+  their portal as an announcement.
+* **Ask the coach.** Any agent who is stuck types what is happening and gets the steps
+  and a message to send. Without an AI key this answers from the built-in guide. To
+  make it a ChatGPT-style assistant that answers any question, add **one** of these in
+  Render → Environment: `ANTHROPIC_API_KEY` (Claude) or `OPENAI_API_KEY` (ChatGPT), then
+  redeploy. Optional: `COACH_MODEL` / `COACH_OPENAI_MODEL` to choose the model,
+  `COACH_PROVIDER` (`anthropic` or `openai`) if both keys are set. The key stays on the
+  server. Only the country, stage and number of follow-ups of a chosen lead are sent to
+  the AI — never a name, phone number or note — each person is limited to 40 questions
+  per 10 minutes, and the assistant is told never to promise visa approval or suggest
+  false documents. If the AI service is down the built-in guide answers instead.
+
 ## Running it locally
 
 ```bash

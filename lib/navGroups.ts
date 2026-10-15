@@ -16,6 +16,7 @@ export const NAV_GROUPS: NavGroup[] = [
     tiles: [
       { id: 'leads', label: 'Leads', blurb: 'Every enquiry, from first message to conversion' },
       { id: 'leadsources', label: 'Lead Sources', blurb: 'One link per ad form — country-wise leads, answers and results' },
+      { id: 'coach', label: 'Sales Coach', blurb: 'Follow-up and conversion steps, ready-made posts, and an assistant for the sales team' },
       { id: 'campaigns', label: 'Campaigns', blurb: 'Ad performance, cost per lead and per conversion' },
       { id: 'adsmanager', label: 'Ads Manager', blurb: 'Live from Meta: campaign status, spend, leads — against clients and payments' },
       { id: 'testimonials', label: 'Success Stories', blurb: 'Approved cases and client testimonials' },
@@ -50,6 +51,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'accounts', label: 'Accounts', blurb: 'Ledger, outstanding balances, bank accounts' },
       { id: 'billing', label: 'Billing Center', blurb: 'Who owes what, overdue balances and payment reminders' },
       { id: 'closing', label: 'Monthly Closing', blurb: 'Month-end cash position, collections and pending balances' },
+      { id: 'payouts', label: 'Upcoming Payouts', blurb: 'Embassy fees, salaries and commissions still to pay — against what clients will pay, month by month and day by day' },
       { id: 'profit', label: 'Profit & Growth', blurb: 'Net profit, unpaid balances kept apart, and growth against last month and last year' },
       { id: 'reports', label: 'Reports & Finance', blurb: 'Performance charts, loans, revenue targets' },
       { id: 'pricing', label: 'Pricing by Country', blurb: 'Consultation, visa service, and appointment fees' },

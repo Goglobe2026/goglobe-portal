@@ -1,6 +1,7 @@
 import type { Case, Transaction, Lead, PayRun, Loan, PersonalExpense, Appointment } from './types';
 import { computeMonth, caseCharge, closedOn, shiftMonth, monthEnd } from './finance';
 import { forecast, type Forecast } from './paymentPlan';
+import { caseCost } from './caseBook';
 
 // ---------------------------------------------------------------------------
 // Profit & Growth.
@@ -92,7 +93,7 @@ export function keptApart(month: string, d: ProfitInput, todayIso: string): Kept
   let referralOwed = 0; let referralFiles = 0;
   d.cases.forEach(c => {
     if (!c.referralAgentId || !(c.referralCommissionPercent > 0) || c.status === 'Refused') return;
-    const earned = Math.round(Math.max(0, caseCharge(c) - (c.costToExecute || 0)) * (c.referralCommissionPercent / 100));
+    const earned = Math.round(Math.max(0, caseCharge(c) - caseCost(c)) * (c.referralCommissionPercent / 100));
     const due = Math.max(0, earned - (c.referralCommissionPaid || 0));
     if (due > 0) { referralOwed += due; referralFiles++; }
   });

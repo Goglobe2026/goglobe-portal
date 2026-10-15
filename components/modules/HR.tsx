@@ -6,7 +6,8 @@ import { overallPaid } from './Cases';
 import { closerOf, casesClosedBy, collectedFor, dueCaseBonuses } from '@/lib/finance';
 import { Modal, ModalTitle, ModalFoot, Field, SectionHead, Stamp } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
-import type { TeamMember } from '@/lib/types';
+import type { TeamMember, Specialty } from '@/lib/types';
+import { SPECIALTIES, SPECIALTY_NOTE, specialtyLabel } from '@/lib/specialty';
 import { PayslipHistory } from './Payroll';
 import { PerfPanel } from './PerfWatch';
 import { usePerfWatch } from '@/lib/usePerfWatch';
@@ -61,7 +62,7 @@ export function HR() {
       } />
       <div className="card p-0 overflow-auto">
         <table>
-          <thead><tr><th>Name</th><th>Post / designation</th><th>Department</th><th>Category</th><th>Watch</th><th>Contract</th><th>Contact</th><th>PIN</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Post / designation</th><th>Department</th><th>Desk</th><th>Category</th><th>Watch</th><th>Contract</th><th>Contact</th><th>PIN</th><th></th></tr></thead>
           <tbody>
             {team.map(t => (
               <tr key={t.id} style={t.employmentStatus && t.employmentStatus !== 'Active' && t.employmentStatus !== 'On Leave' ? { opacity: 0.55 } : undefined}>
@@ -74,6 +75,7 @@ export function HR() {
                 </td>
                 <td>{t.role}</td>
                 <td><Stamp text={t.department} /></td>
+                <td data-testid={`hr-desk-${t.id}`} className="text-[12px]" style={{ color: t.specialties?.length ? 'var(--navy)' : 'var(--faint)', fontWeight: t.specialties?.length ? 600 : 400 }}>{specialtyLabel(t)}</td>
                 <td className="text-[12px]" style={{ color: t.performanceCategory === 'Top Performer' ? 'var(--gold)' : 'var(--muted)', fontWeight: t.performanceCategory === 'Top Performer' ? 600 : 400 }}>{t.performanceCategory || 'Standard'}</td>
                 <td data-testid={`hr-watch-${t.id}`}>{(() => { const sp = perf.staff.find(s => s.staffId === t.id); return sp ? <><Stamp text={sp.status} />{sp.flags.length > 0 && <div className="text-[10.5px] text-[var(--muted)] mt-0.5">{sp.flags.length} flag{sp.flags.length === 1 ? '' : 's'}</div>}</> : <span className="text-[var(--faint)] text-[11px]">—</span>; })()}</td>
                 <td className="text-[12px]">{t.contractType}<div className="font-mono-ui text-[10.5px]">{fmtDate(t.contractStart)}{t.contractEnd ? ` – ${fmtDate(t.contractEnd)}` : ' – ongoing'}</div></td>
@@ -360,15 +362,19 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   const [address, setAddress] = useState(t?.address || '');
   const [contractPdf, setContractPdf] = useState(t?.contractPdf || '');
   const [contractPdfName, setContractPdfName] = useState(t?.contractPdfName || '');
+  const [specialties, setSpecialties] = useState<Specialty[]>(t?.specialties || []);
+  const toggleSpecialty = (sp: Specialty) => setSpecialties(prev => (prev.includes(sp) ? prev.filter(x => x !== sp) : [...prev, sp]));
 
   function save() {
     if (!name.trim()) { toast('Enter a name'); return; }
     const data: TeamMember = {
+      ...(t || {}),
       id: t?.id || `tm_${Date.now().toString(36)}`, name, phone, email, department, role: role || 'Staff',
       education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
       salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
       monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay, monthlyAllowance,
       guardianName, guardianPhone, address, contractPdf, contractPdfName, isAdmin,
+      specialties: specialties.length ? specialties : undefined,
     };
     if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
     else setTeam(prev => [...prev, data]);
@@ -448,6 +454,22 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
         <Field label="Post / designation"><input value={role} onChange={e => setRole(e.target.value)} /></Field>
       </div>
       <div className="text-[11.5px] text-[var(--faint)] -mt-2 mb-3">Whichever department is selected here decides what shows in this person&apos;s own portal.</div>
+      <div className="mb-3" data-testid="specialty-picker">
+        <label>Desk / specialization <span className="font-normal text-[var(--muted)]">— the countries this person is expert in</span></label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {SPECIALTIES.map(sp => (
+            <button key={sp} type="button" data-testid={`spec-${sp.split(',')[0].toLowerCase().replace(/\s+/g, '')}`} aria-pressed={specialties.includes(sp)} className="btn btn-sm" onClick={() => toggleSpecialty(sp)}
+              style={specialties.includes(sp) ? { background: 'var(--navy)', color: '#fff', borderColor: 'transparent' } : {}}>
+              {sp}
+            </button>
+          ))}
+        </div>
+        <div className="text-[11.5px] text-[var(--faint)] mt-1">
+          {specialties.length
+            ? `${specialties.join(' + ')} desk only — new ${specialties.map(sp => SPECIALTY_NOTE[sp]).join(' and ').toLowerCase()} are offered to this person first, and other countries are not auto-assigned to them.`
+            : 'No desk picked: an all-rounder who can take any country. Pick one or more to make this person a specialist.'}
+        </div>
+      </div>
 
       <SectionHead title="Education & experience" />
       <Field label="Education"><input value={education} onChange={e => setEducation(e.target.value)} /></Field>

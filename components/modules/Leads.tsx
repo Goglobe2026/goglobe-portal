@@ -10,6 +10,7 @@ import { Modal, ModalTitle, ModalFoot, Field, SectionHead, EmptyState, Stamp } f
 import { useToast } from '@/components/ui/Toast';
 import { THEME, GROUPS, groupStats, totalStats, sortNewest, inTab, isFresh, isDue, followState, cityOf, type LeadTab, type CountryGroup, groupLook } from '@/lib/leadView';
 import { LeadsTable } from './LeadsTable';
+import { autoAssign, specialtyLabel } from '@/lib/specialty';
 import { LeadsDashboard, type Preset } from './LeadsDashboard';
 import { LeadDetails, type DetailAction } from './LeadDetails';
 import type { Lead, FollowUpTemplate, Campaign } from '@/lib/types';
@@ -153,6 +154,14 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
     if (stage === 'Lost') setLostReasonFor(id);
   }
   const setFollowUp = (id: string, date: string) => setLeads(prev => prev.map(l => l.id === id ? { ...l, nextFollowUp: date } : l));
+  function autoAssignNow() {
+    const only = new Set(tabLeads.map(l => l.id));
+    const r = autoAssign(leads, assignable, cases, only);
+    if (!r.assigned) { toast(r.skipped ? `No one on the right desk is free for ${r.skipped} lead${r.skipped === 1 ? '' : 's'} — set desks in HR, or assign by hand` : 'Nothing to assign'); return; }
+    setLeads(r.leads);
+    const parts = Object.entries(r.byDesk).map(([d, n]) => `${d}: ${n}`).join(' · ');
+    toast(`Assigned ${r.assigned} lead${r.assigned === 1 ? '' : 's'} (${parts})${r.skipped ? ` — ${r.skipped} left, no one on that desk` : ''}`);
+  }
   const assignTo = (id: string, staffId: string) => setLeads(prev => prev.map(l => l.id === id ? { ...l, assignedTo: staffId } : l));
   const toggleVip = (id: string) => setLeads(prev => prev.map(x => x.id === id ? { ...x, isVip: !x.isVip } : x));
   function toggleSelect(id: string) {
@@ -274,6 +283,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
             <button style={chip(presets.has('vip'), '#C9922E')} onClick={() => togglePreset('vip')}>★ VIP</button>
             <button style={chip(presets.has('engagement'), THEME.navy)} onClick={() => togglePreset('engagement')}>Due for engagement {counts.engagement > 0 && `(${counts.engagement})`}</button>
             <span style={{ flex: 1 }} />
+            {counts.unassigned > 0 && <button style={linkBtn} data-testid="auto-assign" onClick={autoAssignNow} title="Gives every lead without a consultant to the right desk’s person, sharing the work evenly">⚡ Auto-assign by desk ({counts.unassigned})</button>}
             <button style={linkBtn} onClick={() => setViewMode(viewMode === 'list' ? 'calendar' : 'list')}>{viewMode === 'list' ? '📅 Calendar view' : '☰ List view'}</button>
             <button style={linkBtn} onClick={() => setShowCountryNotes(true)}>🌍 Country updates</button>
             <button style={linkBtn} onClick={() => setShowTemplates(true)}>✉ Follow-up messages</button>
@@ -304,7 +314,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
                 e.target.value = '';
               }}>
                 <option value="">Assign to…</option>
-                {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {assignable.map((t: any) => <option key={t.id} value={t.id}>{t.name}{t.specialties?.length ? ` — ${specialtyLabel(t)}` : ''}</option>)}
               </select>
               <button style={linkBtn} onClick={() => setSelected(new Set())}>Clear</button>
             </div>
@@ -320,7 +330,7 @@ export function Leads({ onConvert }: { onConvert: (lead: Lead) => void }) {
           ) : (
             <LeadsTable
               rows={paginated} startIndex={pageStart} showCountry={tab === 'all' || tab === 'Other'}
-              selected={selected} assignable={assignable.map((t: any) => ({ id: t.id, name: t.name }))}
+              selected={selected} assignable={assignable.map((t: any) => ({ id: t.id, name: t.name, specialties: t.specialties }))}
               nowMs={nowMs} todayStr={todayStr} leadSources={leadSources} cases={cases}
               sortColumn={sortColumn} sortDirection={sortDirection} onSort={toggleSort}
               onToggle={toggleSelect} onToggleAll={toggleSelectAll}
