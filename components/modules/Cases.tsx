@@ -216,7 +216,7 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
                         <div className="font-medium text-[12.5px]" data-testid="case-date">{fmtDate(closedOn(c))}</div>
                         <div className="font-mono-ui text-[11.5px] font-bold" style={{ color: '#14213D' }} data-testid="case-queryno">{c.queryNo || '—'}</div>
                       </td>
-                      <td className="font-medium">
+                      <td className="font-medium" style={{ minWidth: 170 }}>
                         <button className="underline decoration-[var(--line)] text-left" onClick={() => setOpenId(c.id)}>{c.name}</button>
                         {isFamilyCase(c) && <div className="mt-0.5"><span title={`Family file — ${applicantsOf(c)} applicants`} className="text-[10.5px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: 'var(--gold-50)', border: '1px solid #E8C784', color: '#8a5a12' }}>FAMILY · {applicantsOf(c)}</span></div>}
                         {c.tourId && <div className="mt-0.5"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: '#E7F6EF', border: '1px solid #9ED7BC', color: '#0B6E4F' }}>GROUP TOUR</span></div>}
@@ -239,7 +239,7 @@ export function Cases({ prefillFromLead, clearPrefill }: { prefillFromLead: Lead
                         </select>
                       </td>
                       <td><button className="btn btn-sm btn-ghost !px-1.5" title="Documents verified" onClick={() => setOpenId(c.id)}>{verified}/{c.documents.length}</button></td>
-                      <td>{c.apptFee > 0 ? <Stamp text={c.apptPaid >= c.apptFee ? 'Approved' : 'Refused'} /> : <span className="text-[var(--muted)] font-mono-ui text-xs">n/a</span>}</td>
+                      <td>{c.apptFee > 0 ? <Stamp text={c.apptPaid >= c.apptFee ? 'Paid' : 'Due'} /> : <span className="text-[var(--muted)] font-mono-ui text-xs">n/a</span>}</td>
                       <td className="font-mono-ui text-xs whitespace-nowrap">
                         <div className="font-semibold">{money(overallPaid(c))}</div>
                         <div className="text-[var(--muted)] text-[11px]">of {money(overallCharge(c))}</div>

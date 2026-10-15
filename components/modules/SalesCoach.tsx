@@ -1,21 +1,22 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
 import { fmtDate, genId, today } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import type { Lead } from '@/lib/types';
 import {
-  CADENCE, FOLLOW_UP_RULES, CONVERSION, GUIDE, WEEK_PLAN, DAILY_HABITS, BENEFITS, TIPS, QUICK_QUESTIONS, POST_KINDS, POST_COUNTRIES,
-  tipOfDay, postOfTheDay, buildPost, coachQueue, scriptFor, fill, outboundCount, bracket,
-  type CoachAction, type PostKind, type PostLang, type GuideReply,
+  CADENCE, FOLLOW_UP_RULES, CONVERSION, GUIDE, WEEK_PLAN, DAILY_HABITS, BENEFITS, TIPS, POST_KINDS, POST_COUNTRIES,
+  tipOfDay, postOfTheDay, buildPost, coachQueue, scriptFor, fill, bracket,
+  type PostKind, type PostLang,
 } from '@/lib/coach';
-import { deskOf } from '@/lib/specialty';
+import { AssistantChat } from '@/components/shell/AssistantChat';
+import { assistant, useAssistantData } from '@/components/shell/useAssistant';
 
 // The Sales Coach: what to do next with each lead, the steps for following up and converting,
 // the weekly marketing routine, ready-made posts, and an assistant to ask when confused.
 
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 const GREEN = '#0B6E4F';
 const RED = '#B5433A';
 const AMBER = '#8a5a12';
@@ -52,7 +53,7 @@ export function SalesCoach({ admin = false }: { admin?: boolean }) {
   const staffId = session?.type === 'employee' ? session.staffId : '';
   const me = team.find(t => t.id === staffId);
   const [tab, setTab] = useState<TabId>('today');
-  const [askSeed, setAskSeed] = useState<{ text: string; leadId?: string; n: number } | null>(null);
+  const { build } = useAssistantData();
   const todayStr = today();
   const tip = tipOfDay(todayStr);
 
@@ -61,7 +62,11 @@ export function SalesCoach({ admin = false }: { admin?: boolean }) {
   const teamRows = useMemo(() => sales.map(t => ({ t, q: coachQueue(leads, t.id, todayStr, Date.now(), 0) })), [leads, team, todayStr]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const pill = (on: boolean): CSSProperties => ({ padding: '7px 14px', fontSize: 13, fontWeight: 700, borderRadius: 999, border: `1px solid ${on ? NAVY : 'var(--line)'}`, background: on ? NAVY : '#fff', color: on ? '#fff' : NAVY, cursor: 'pointer' });
-  function askAbout(text: string, leadId?: string) { setAskSeed({ text, leadId, n: Date.now() }); setTab('ask'); }
+  function askAbout(_text: string, leadId?: string) {
+    const l = leads.find(x => x.id === leadId);
+    setTab('ask');
+    setTimeout(() => assistant.ask(l ? `Tell me about ${l.name}` : _text, build), 50);
+  }
 
   return (
     <div data-testid="sales-coach">
@@ -93,7 +98,7 @@ export function SalesCoach({ admin = false }: { admin?: boolean }) {
       {tab === 'convert' && <ConvertTab />}
       {tab === 'marketing' && <MarketingTab staffId={staffId || 'admin'} todayStr={todayStr} />}
       {tab === 'posts' && <PostsTab admin={admin} agentName={me?.name || ''} phone={me?.phone || ''} />}
-      {tab === 'ask' && <AskTab admin={admin} staffId={staffId} seed={askSeed} />}
+      {tab === 'ask' && <AskTab />}
     </div>
   );
 }
@@ -297,19 +302,15 @@ function PostsTab({ admin, agentName, phone }: { admin: boolean; agentName: stri
   const [dest, setDest] = useState(daily.destination);
   const [kind, setKind] = useState<PostKind>(daily.kind);
   const [text, setText] = useState(daily.text);
-  const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const regen = (d = dest, k = kind, l = lang) => { setText(buildPost({ destination: d, kind: k, lang: l, agentName, phone })); setNote(''); };
 
-  async function improve() {
-    setBusy(true); setNote('');
-    try {
-      const r = await fetch('/api/coach', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'post', question: text, destination: dest, lang }) });
-      const j = await r.json();
-      if (!r.ok) { setNote(j.error || 'Could not improve the post'); }
-      else { if (j.source === 'ai') setText(j.answer); setNote(j.note || (j.source === 'ai' ? 'Improved by the AI assistant — read it before you post.' : '')); }
-    } catch { setNote('Could not reach the server'); }
-    setBusy(false);
+  // a shorter version: the opening, the call to action and the sign-off
+  function shorter() {
+    const parts = text.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+    if (parts.length <= 3) { setNote('This post is already short.'); return; }
+    setText([parts[0], parts[1], parts[parts.length - 2], parts[parts.length - 1]].filter((x, i, arr) => arr.indexOf(x) === i).join('\n\n'));
+    setNote('Shortened — read it through before you post.');
   }
   function sendToTeam() {
     if (!window.confirm(`Send this post to every sales agent? It appears at the top of their portal.`)) return;
@@ -340,7 +341,7 @@ function PostsTab({ admin, agentName, phone }: { admin: boolean; agentName: stri
           <button className="btn btn-primary btn-sm" data-testid="post-copy" onClick={() => copy(text, 'Post copied — paste it in WhatsApp Status or your group')}>Copy post</button>
           <a className="btn btn-sm" style={{ background: 'linear-gradient(135deg,#1FA463,#0B6E4F)', color: '#fff' }} target="_blank" rel="noreferrer" href={`https://wa.me/?text=${encodeURIComponent(text)}`} data-testid="post-wa">Share on WhatsApp</a>
           <button className="btn btn-sm" data-testid="post-new" onClick={() => regen()}>Start again</button>
-          <button className="btn btn-sm" data-testid="post-ai" disabled={busy} onClick={improve}>{busy ? 'Improving…' : '✨ Improve with AI'}</button>
+          <button className="btn btn-sm" data-testid="post-short" onClick={shorter}>Make it shorter</button>
           {admin && <button className="btn btn-sm" data-testid="post-team" style={{ background: '#C9922E', color: '#fff', borderColor: 'transparent' }} onClick={sendToTeam}>Send to the sales team</button>}
         </div>
         {note && <div data-testid="post-note" style={{ ...muted, marginTop: 8, color: AMBER }}>{note}</div>}
@@ -351,97 +352,14 @@ function PostsTab({ admin, agentName, phone }: { admin: boolean; agentName: stri
 }
 
 // ---------- ask the coach ----------
-interface Msg { role: 'user' | 'assistant'; text?: string; guide?: GuideReply[]; source?: 'ai' | 'guide'; note?: string }
-function AskTab({ admin, staffId, seed }: { admin: boolean; staffId: string; seed: { text: string; leadId?: string; n: number } | null }) {
-  const { leads } = useAppData();
-  const copy = useCopy();
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [leadId, setLeadId] = useState('');
-  const [status, setStatus] = useState<{ ai: boolean; provider: string | null } | null>(null);
-  const seen = useRef(0);
-  const mine = leads.filter(l => l.assignedTo === staffId && !['Converted', 'Lost'].includes(l.stage));
-
-  useEffect(() => { fetch('/api/coach').then(r => r.json()).then(setStatus).catch(() => setStatus({ ai: false, provider: null })); }, []);
-  const thread = useRef<HTMLDivElement>(null);
-  // keep the latest question (and the start of its answer) in view, not the end of a long answer
-  useEffect(() => {
-    const t = thread.current; if (!t) return;
-    const users = t.querySelectorAll('[data-testid=coach-user]');
-    const last = users[users.length - 1] as HTMLElement | undefined;
-    if (last) t.scrollTop = Math.max(0, last.offsetTop - t.offsetTop - 4);
-  }, [msgs, busy]);
-
-  function contextOf(id: string) {
-    const l = leads.find(x => x.id === id); if (!l) return undefined;
-    const days = Math.max(0, Math.round((Date.parse(today() + 'T00:00:00Z') - Date.parse((l.createdAt || today()) + 'T00:00:00Z')) / 86400000));
-    return { destination: l.destination, stage: l.stage, daysOld: days, followUps: outboundCount(l), interest: l.interestLevel, source: l.source };
-  }
-  async function ask(text: string, lead = leadId) {
-    const question = text.trim(); if (!question || busy) return;
-    const history = msgs.map(m => ({ role: m.role, text: m.text || (m.guide ? m.guide.map(g => `${g.title}: ${(g.steps || []).join(' ')}`).join('\n') : '') }));
-    setMsgs(prev => [...prev, { role: 'user', text: question }]); setQ(''); setBusy(true);
-    try {
-      const r = await fetch('/api/coach', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, history, context: lead ? contextOf(lead) : undefined }) });
-      const j = await r.json();
-      if (!r.ok) setMsgs(prev => [...prev, { role: 'assistant', text: j.error || 'Something went wrong — please try again.', source: 'guide' }]);
-      else setMsgs(prev => [...prev, { role: 'assistant', text: j.source === 'ai' ? j.answer : undefined, guide: j.source === 'guide' ? j.guide || [] : undefined, source: j.source, note: j.note }]);
-    } catch { setMsgs(prev => [...prev, { role: 'assistant', text: 'Could not reach the server — check your internet and try again.', source: 'guide' }]); }
-    setBusy(false);
-  }
-  useEffect(() => {
-    if (seed && seed.n !== seen.current) { seen.current = seed.n; if (seed.leadId) setLeadId(seed.leadId); ask(seed.text, seed.leadId || ''); }
-  }, [seed]);   // eslint-disable-line react-hooks/exhaustive-deps
-
+// The same assistant as the round button in the corner: it answers from the portal's own data and the
+// company guide, so it needs no AI key. The conversation is shared with the corner window.
+function AskTab() {
   return (
     <div style={box} data-testid="coach-ask">
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <div style={h3}>Ask the coach</div>
-        <span data-testid="coach-mode" style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: status?.ai ? '#E6F4EE' : '#FFF4DB', color: status?.ai ? GREEN : AMBER }}>
-          {status === null ? '…' : status.ai ? `AI assistant on (${status.provider === 'openai' ? 'ChatGPT' : 'Claude'})` : 'Built-in guide'}
-        </span>
-      </div>
-      <div style={{ ...muted, marginBottom: 10 }}>Stuck with a client? Type what is happening — you get the steps and a message you can send.{status && !status.ai && admin ? ' To answer any question with AI, add an ANTHROPIC_API_KEY or OPENAI_API_KEY in your hosting settings.' : ''}</div>
-      {!msgs.length && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {QUICK_QUESTIONS.map(s => <button key={s} className="btn btn-sm" data-testid="coach-quick" onClick={() => ask(s)}>{s}</button>)}
-        </div>)}
-      <div ref={thread} style={{ maxHeight: 440, overflowY: 'auto', marginBottom: 10, position: 'relative' }} data-testid="coach-thread">
-        {msgs.map((m, i) => m.role === 'user' ? (
-          <div key={i} data-testid="coach-user" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}><div style={{ background: NAVY, color: '#fff', borderRadius: '12px 12px 2px 12px', padding: '8px 12px', maxWidth: '82%', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.text}</div></div>
-        ) : (
-          <div key={i} data-testid="coach-reply" data-source={m.source} style={{ marginBottom: 10 }}>
-            <div style={{ background: '#F6F8FB', borderRadius: '12px 12px 12px 2px', padding: '10px 12px', fontSize: 13.5, lineHeight: 1.55, maxWidth: '92%' }}>
-              {m.text && <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>}
-              {m.guide && (m.guide.length ? m.guide.map((g, k) => (
-                <div key={k} style={{ marginBottom: k < m.guide!.length - 1 ? 12 : 0 }}>
-                  <div style={{ fontWeight: 700, color: NAVY }}>{g.title}</div>
-                  <div>{g.body}</div>
-                  {g.steps && <ol style={{ margin: '4px 0 4px 18px', padding: 0 }}>{g.steps.map((s, n) => <li key={n}>{s}</li>)}</ol>}
-                  {g.say && <><div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 10px', marginTop: 4 }}>{g.say}</div>
-                    <button className="btn btn-sm btn-ghost" onClick={() => copy(g.say as string, 'Message copied')}>Copy message</button></>}
-                </div>))
-                : <div>I do not have a ready answer for that. Try asking about: the fee being too high, a client who will “think about it”, no reply, asking for the advance, a past refusal, documents, or a family file. Or tell your manager what you are stuck on.</div>)}
-              {m.text && m.source === 'ai' && <button className="btn btn-sm btn-ghost" onClick={() => copy(m.text as string)}>Copy</button>}
-            </div>
-            {m.note && <div style={{ ...muted, color: AMBER, margin: '3px 0 0 6px' }}>{m.note}</div>}
-          </div>
-        ))}
-        {busy && <div style={muted} data-testid="coach-busy">Thinking…</div>}
-      </div>
-      {!admin && mine.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <label className="text-[11.5px]">About one of your leads (optional — only the country, stage and follow-up count are shared, never the name or number)</label>
-          <select data-testid="coach-lead" value={leadId} onChange={e => setLeadId(e.target.value)}>
-            <option value="">— General question —</option>
-            {mine.slice(0, 80).map(l => <option key={l.id} value={l.id}>{l.name} — {l.destination} ({l.stage})</option>)}
-          </select>
-        </div>)}
-      <form onSubmit={e => { e.preventDefault(); ask(q); }} style={{ display: 'flex', gap: 8 }}>
-        <input data-testid="coach-input" value={q} onChange={e => setQ(e.target.value)} placeholder="e.g. The client says another agent is cheaper — what do I say?" maxLength={1200} />
-        <button className="btn btn-primary" data-testid="coach-send" type="submit" disabled={busy || !q.trim()}>Ask</button>
-      </form>
+      <div style={h3}>Ask the assistant</div>
+      <div style={{ ...muted, marginBottom: 10 }}>Stuck with a client, or not sure what to do next? Type it in English or Roman Urdu — you get the steps and a message you can send. It also knows your leads, cases and the country rules.</div>
+      <AssistantChat variant="inline" />
     </div>
   );
 }

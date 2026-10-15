@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 export const ARIAL = 'Arial, Helvetica, sans-serif';
-export const NAVY = '#14213D';
+export const NAVY = 'var(--accent-ink)';
 export const th: CSSProperties = { background: NAVY, color: '#fff', padding: '11px 13px', fontSize: 14, fontWeight: 700, textAlign: 'left', fontFamily: ARIAL };
 export const td: CSSProperties = { padding: '11px 13px', fontSize: 15, borderBottom: '1px solid #e3e8ea', fontFamily: ARIAL, verticalAlign: 'middle' };
 export const R: CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap' };

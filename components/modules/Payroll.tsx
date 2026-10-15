@@ -13,7 +13,7 @@ import { exportToCsv } from '@/lib/csv';
 import type { TeamMember, PayrollCategory, PayRun, PayrollLine, PayLineItem, PayAttendance, StaffAdvance, Transaction, AttendanceRecord } from '@/lib/types';
 
 const ARIAL = 'Arial, Helvetica, sans-serif';
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 const th: CSSProperties = { background: NAVY, color: '#fff', padding: '11px 13px', fontSize: 14, fontWeight: 700, textAlign: 'left', fontFamily: ARIAL };
 const td: CSSProperties = { padding: '11px 13px', fontSize: 15, borderBottom: '1px solid #e3e8ea', fontFamily: ARIAL, verticalAlign: 'middle' };
 const R: CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap' };

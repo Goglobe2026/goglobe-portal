@@ -1,29 +1,32 @@
 'use client';
+import { useMemo } from 'react';
 import { useAppData } from '@/lib/AppDataContext';
-import { money, DESTINATIONS } from '@/lib/constants';
-import { SectionHead } from '@/components/ui/Primitives';
+import { money, DESTINATIONS, today } from '@/lib/constants';
+import { shiftMonth, monthLabel } from '@/lib/finance';
+import { moneyHome } from '@/lib/money';
+import { useMoneyInput } from '@/components/shell/useMoney';
+import { ModuleHero, StatCard, Panel, Ring, BarList, Sparkline } from '@/components/ui/Kit';
 import { PerfDashCard } from './PerfWatch';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell } from 'recharts';
+
+const STAGE_COLORS: Record<string, string> = { New: 'hsl(214 70% 52%)', Contacted: 'hsl(38 88% 50%)', Qualified: 'hsl(258 58% 56%)', Converted: 'hsl(152 62% 38%)', Lost: 'hsl(215 12% 62%)' };
 
 export function Dashboard() {
-  const { leads, cases, appointments, activity, transactions, revenueGoal, bankAccounts, loans } = useAppData();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const totalLeads = leads.length;
-  const activeCases = cases.filter(c => c.status === 'Active').length;
-  const overallCharge = (c: typeof cases[0]) => Math.max(0, c.fee + c.apptFee + c.consultFee - c.discount);
-  const overallPaid = (c: typeof cases[0]) => c.paid + c.apptPaid + c.consultPaid;
-  const revenueCollected = cases.reduce((s, c) => s + overallPaid(c), 0);
-  const revenuePending = cases.reduce((s, c) => s + (overallCharge(c) - overallPaid(c)), 0);
-  const upcoming = appointments.filter(a => a.date >= today && a.status === 'Scheduled').length;
-  const decided = cases.filter(c => c.status === 'Approved' || c.status === 'Refused').length;
-  const totalBank = bankAccounts.reduce((s, b) => s + b.balance, 0);
-  const loansGivenOutstanding = loans.filter(l => l.direction === 'Given' && l.status === 'Active').reduce((s, l) => s + Math.max(0, l.principal - l.amountRepaid), 0);
-  const loansTakenOutstanding = loans.filter(l => l.direction === 'Taken' && l.status === 'Active').reduce((s, l) => s + Math.max(0, l.principal - l.amountRepaid), 0);
-  const netPosition = totalBank + loansGivenOutstanding - loansTakenOutstanding;
-  const approvalRate = decided ? Math.round((cases.filter(c => c.status === 'Approved').length / decided) * 100) : 0;
-
+  const { leads, cases, appointments, activity, transactions, revenueGoal, loans } = useAppData();
+  const input = useMoneyInput();
+  const todayStr = today();
   const now = new Date();
+  const mh = useMemo(() => moneyHome(todayStr.slice(0, 7), input, todayStr), [input, todayStr]);
+
+  const activeCases = cases.filter(c => c.status === 'Active').length;
+  const upcoming = appointments.filter(a => a.date >= todayStr && a.status === 'Scheduled').length;
+  const decided = cases.filter(c => c.status === 'Approved' || c.status === 'Refused').length;
+  const approvalRate = decided ? Math.round((cases.filter(c => c.status === 'Approved').length / decided) * 100) : 0;
+  const openLeads = leads.filter(l => !['Converted', 'Lost'].includes(l.stage)).length;
+  const loansGiven = loans.filter(l => l.direction === 'Given' && l.status === 'Active').reduce((s, l) => s + Math.max(0, l.principal - l.amountRepaid), 0);
+  const loansTaken = loans.filter(l => l.direction === 'Taken' && l.status === 'Active').reduce((s, l) => s + Math.max(0, l.principal - l.amountRepaid), 0);
+  const netPosition = mh.bank + loansGiven - loansTaken;
+
   const yearStart = `${now.getFullYear()}-01-01`;
   const incomeThisYear = transactions.filter(t => t.type === 'Income' && t.date >= yearStart).reduce((s, t) => s + t.amount, 0);
   const goal = Number(revenueGoal) || 10000000;
@@ -32,101 +35,85 @@ export function Dashboard() {
   const endOfYear = new Date(now.getFullYear() + 1, 0, 1).getTime();
   const dayOfYear = Math.round((now.getTime() - startOfYear) / 86400000) + 1;
   const daysInYear = Math.round((endOfYear - startOfYear) / 86400000);
-  const expectedPace = goal * (dayOfYear / daysInYear);
-  const onTrack = incomeThisYear >= expectedPace;
+  const onTrack = incomeThisYear >= goal * (dayOfYear / daysInYear);
   const monthsLeft = Math.max(1, 12 - now.getMonth());
   const neededPerMonth = Math.max(0, (goal - incomeThisYear) / monthsLeft);
 
   const stages = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
-  const maxCount = Math.max(1, ...stages.map(s => leads.filter(l => l.stage === s).length));
+  const stageRows = stages.map(s => ({ label: s, value: leads.filter(l => l.stage === s).length, color: STAGE_COLORS[s] }));
+  const countryData = DESTINATIONS.map(d => ({ name: d, count: leads.filter(l => l.destination === d).length + cases.filter(c => c.destination === d).length })).filter(x => x.count > 0).sort((a, b) => b.count - a.count).slice(0, 10);
 
-  const countryData = DESTINATIONS.map(d => ({
-    name: d,
-    count: leads.filter(l => l.destination === d).length + cases.filter(c => c.destination === d).length,
-  }));
+  // Leads per month for the small trend line.
+  const leadTrend = Array.from({ length: 6 }, (_, i) => { const m = shiftMonth(todayStr.slice(0, 7), i - 5); return leads.filter(l => (l.createdAt || '').slice(0, 7) === m).length; });
 
   return (
     <div>
-      <div className="card mb-3.5" style={{ background: 'linear-gradient(135deg,#14213D,#1B3358)', border: 'none', color: '#fff' }}>
-        <div className="text-[11.5px] uppercase tracking-wide font-semibold" style={{ opacity: 0.75 }}>Net position right now</div>
-        <div className="font-display text-[28px] font-semibold mt-1.5">{money(netPosition)}</div>
-        <div className="text-[11.5px] mt-1.5" style={{ opacity: 0.85 }}>Company accounts, plus what's owed to you, minus what you owe — full breakdown in Reports &amp; Finance</div>
-      </div>
-      <div className="grid grid-cols-5 gap-3.5 max-lg:grid-cols-3 max-md:grid-cols-2">
-        <Metric label="Open leads" value={String(totalLeads)} note="In the pipeline right now" />
-        <Metric label="Active cases" value={String(activeCases)} note={`${cases.length} total on file`} />
-        <Metric label="Revenue collected" value={money(revenueCollected)} note={`${money(revenuePending)} pending`} />
-        <Metric label="Appointments ahead" value={String(upcoming)} note="Scheduled, not yet completed" />
-        <Metric label="Approval rate" value={`${approvalRate}%`} note={`Across ${decided} decided cases`} />
+      <div className="mb-5">
+        <ModuleHero tab="dashboard" title="Business at a glance" subtitle="Leads, cases, money and your team — everything that matters, on one screen."
+          stats={[
+            { label: 'Received this month', value: money(mh.received) },
+            { label: 'Clients still owe', value: money(mh.stillOwed) },
+            { label: 'Net position', value: money(netPosition) },
+          ]} />
       </div>
 
-      <div className="mt-3.5"><PerfDashCard /></div>
-
-      <SectionHead title="Annual revenue goal" count={`${now.getFullYear()} — ${money(goal)} target`} />
-      <div className="card">
-        <div className="flex justify-between items-baseline mb-2">
-          <span className="font-display text-2xl font-semibold">{money(incomeThisYear)}</span>
-          <span className="text-[var(--muted)] text-sm">of {money(goal)} ({goalPct}%)</span>
-        </div>
-        <div className="rounded-md h-3 overflow-hidden mb-3" style={{ background: 'var(--navy-50)' }}>
-          <div className="h-full rounded-md" style={{ width: `${goalPct}%`, background: onTrack ? 'linear-gradient(90deg,var(--navy),var(--navy-light))' : 'linear-gradient(90deg,var(--gold),#e0ac3f)' }} />
-        </div>
-        <div className="text-[12.5px]" style={{ color: onTrack ? 'var(--green)' : 'var(--gold)' }}>
-          {onTrack ? 'On pace to hit your goal.' : 'Behind pace for this point in the year.'} To reach {money(goal)} by year end, you need about {money(neededPerMonth)}/month for the rest of {now.getFullYear()}.
-        </div>
+      <div className="grid grid-cols-4 gap-4 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        <div className="relative"><StatCard label="Open leads" icon="leads" color="hsl(14 74% 48%)" value={openLeads} hint={`${leads.length} leads in total`} />
+          <div className="absolute right-4 top-4"><Sparkline values={leadTrend} color="hsl(14 74% 48%)" width={86} height={28} /></div></div>
+        <StatCard label="Active cases" icon="cases" color="hsl(221 70% 48%)" value={activeCases} hint={`${cases.length} files in total · ${approvalRate}% approved`} />
+        <div className="relative"><StatCard label="What we kept" icon="profit" color={mh.kept >= 0 ? 'hsl(128 58% 32%)' : 'hsl(4 66% 46%)'} value={`${mh.kept < 0 ? '− ' : ''}${money(Math.abs(mh.kept))}`} hint={`${monthLabel(mh.month)} · received minus spent`} />
+          <div className="absolute right-4 top-4"><Sparkline values={mh.trend.map(p => p.net)} color="hsl(128 58% 32%)" width={86} height={28} /></div></div>
+        <StatCard label="Appointments ahead" icon="appointments" color="hsl(196 72% 40%)" value={upcoming} hint="Scheduled, not yet completed" />
       </div>
 
-      <SectionHead title="Business by country" count="leads + cases, every destination you deal in" />
-      <div className="card" style={{ height: 240 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={countryData}>
-            <CartesianGrid stroke="var(--line)" vertical={false} />
-            <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={50} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Bar dataKey="count" fill="var(--navy-light)" radius={[6, 6, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="grid grid-cols-[2fr_1fr] gap-3.5 mt-4 max-md:grid-cols-1">
-        <div className="card">
-          <SectionHead title="Lead pipeline" count="by stage" />
-          <div className="flex flex-col gap-2">
-            {stages.map(s => {
-              const n = leads.filter(l => l.stage === s).length;
-              return (
-                <div key={s} className="flex items-center gap-2.5 text-[12.5px]">
-                  <div className="w-[92px] flex-none text-[var(--muted)] font-medium">{s}</div>
-                  <div className="flex-1 rounded-md h-5 overflow-hidden" style={{ background: 'var(--navy-50)' }}>
-                    <div className="h-full rounded-md" style={{ width: `${(n / maxCount) * 100}%`, background: 'linear-gradient(90deg,var(--navy),var(--navy-light))' }} />
-                  </div>
-                  <div className="w-6 text-right font-mono-ui font-semibold">{n}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="card">
-          <SectionHead title="Recent activity" />
-          {activity.length ? activity.map((a, i) => (
-            <div key={i} className="flex gap-2.5 py-2 text-[12.5px] border-b last:border-0" style={{ borderColor: 'var(--line)' }}>
-              <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-none" style={{ background: 'var(--gold)' }} />
-              <span>{a.t}</span>
+      <div className="grid grid-cols-[1.35fr_1fr] gap-4 mt-4 max-lg:grid-cols-1">
+        <Panel title="Lead pipeline" subtitle="Where every lead is right now">
+          <BarList rows={stageRows} />
+        </Panel>
+        <Panel title="Yearly goal" subtitle={`${now.getFullYear()} · target ${money(goal)}`}>
+          <div className="flex items-center gap-5 flex-wrap">
+            <Ring pct={goalPct} size={112} stroke={12} color={onTrack ? 'hsl(152 62% 36%)' : 'hsl(32 90% 48%)'} />
+            <div className="min-w-0 flex-1" style={{ minWidth: 190 }}>
+              <div className="font-display text-[24px] font-semibold">{money(incomeThisYear)}</div>
+              <div className="text-[12.5px] text-[var(--muted)]">received so far this year</div>
+              <div className="text-[13px] mt-2 font-semibold" style={{ color: onTrack ? 'hsl(152 62% 30%)' : 'hsl(32 88% 36%)' }}>
+                {onTrack ? 'On pace to hit the goal.' : 'Behind the pace for this point in the year.'}
+              </div>
+              <div className="text-[12.5px] text-[var(--muted)] mt-1">Needs about {money(neededPerMonth)} a month for the rest of the year.</div>
             </div>
-          )) : <div className="text-[var(--muted)] py-4">No activity yet.</div>}
-        </div>
+          </div>
+        </Panel>
       </div>
-    </div>
-  );
-}
 
-function Metric({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="card">
-      <div className="text-[11.5px] uppercase tracking-wide font-semibold text-[var(--muted)]">{label}</div>
-      <div className="font-display text-[26px] font-semibold mt-1.5">{value}</div>
-      <div className="text-[11.5px] text-[var(--faint)] mt-1">{note}</div>
+      <div className="grid grid-cols-[1.35fr_1fr] gap-4 mt-4 max-lg:grid-cols-1">
+        <Panel title="Business by country" subtitle="Leads and cases together, top destinations">
+          <div style={{ height: 250 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={countryData} layout="vertical" margin={{ left: 12, right: 18 }}>
+                <CartesianGrid stroke="var(--accent-line)" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11.5 }} />
+                <Tooltip cursor={{ fill: 'var(--accent-soft)' }} />
+                <Bar dataKey="count" radius={[0, 8, 8, 0]} isAnimationActive={false}>
+                  {countryData.map((_, i) => <Cell key={i} fill={`hsl(${224 - i * 9} 62% ${44 + i * 2}%)`} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+        <Panel title="Recent activity" subtitle="What the team did lately" flush>
+          <div style={{ maxHeight: 290, overflow: 'auto' }}>
+            {activity.length ? activity.slice(0, 14).map((a, i) => (
+              <div key={i} className="flex gap-3 px-5 py-2.5 text-[13px]" style={{ borderBottom: '1px solid var(--accent-line)' }}>
+                <span className="w-2 h-2 rounded-full mt-1.5 flex-none" style={{ background: 'var(--accent-2)', boxShadow: '0 0 0 4px var(--accent-soft-2)' }} />
+                <span>{a.t}</span>
+              </div>
+            )) : <div className="text-[var(--muted)] p-5">No activity yet.</div>}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="mt-4"><PerfDashCard /></div>
     </div>
   );
 }

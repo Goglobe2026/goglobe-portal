@@ -12,7 +12,7 @@ import { MonthBookCard } from './MonthBook';
 // commissions), what is coming in from clients, and what that leaves — month by month.
 // On top, the actual business of the month (or of one day): ours, pending, collected.
 
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 const GREEN = '#0B6E4F';
 const RED = '#B5433A';
 const AMBER = '#8a5a12';

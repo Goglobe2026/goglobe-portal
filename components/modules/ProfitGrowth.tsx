@@ -12,7 +12,7 @@ import {
 } from '@/lib/profit';
 
 const ARIAL = 'Arial, Helvetica, sans-serif';
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 const GREEN = '#0B6E4F';
 const RED = '#B5433A';
 const MUTED = '#5B6270';
@@ -103,7 +103,7 @@ export function ProfitGrowth() {
         {/* ---- Net profit ---- */}
         <div data-testid="ps-hero" style={{ background: st.netProfit >= 0 ? '#E7F6EF' : '#FCEEEC', border: `1px solid ${st.netProfit >= 0 ? '#9fd3bd' : '#e5aaa4'}`, padding: '18px 22px', marginTop: 10, display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>NET PROFIT — {monthLabel(month).toUpperCase()}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>WHAT WE KEPT (NET PROFIT) — {monthLabel(month).toUpperCase()}</div>
             <div style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>Money actually received minus money actually paid out in the month</div>
             <div data-testid="ps-compare" style={{ fontSize: 13.5, marginTop: 6, color: dProfit === null ? MUTED : dProfit >= 0 ? GREEN : RED, fontWeight: 700 }}>
               {cmp.prev
@@ -152,7 +152,7 @@ export function ProfitGrowth() {
           </tbody>
           <tbody>
             <tr data-testid="ps-net" style={{ background: st.netProfit >= 0 ? '#E7F6EF' : '#FCEEEC' }}>
-              <td style={{ ...td, fontWeight: 700, fontSize: 17 }}>= Net profit (money in − money out)</td>
+              <td style={{ ...td, fontWeight: 700, fontSize: 17 }}>= What we kept (money in − money out)</td>
               <td style={{ ...td, ...right, fontWeight: 700, fontSize: 17, color: st.netProfit >= 0 ? GREEN : RED }}>{st.netProfit < 0 ? '− ' : ''}{money(Math.abs(st.netProfit))}</td>
             </tr>
             <tr data-testid="ps-earned">
@@ -163,7 +163,7 @@ export function ProfitGrowth() {
         </table>
 
         {/* ---- Kept apart ---- */}
-        <h2 style={h2}>2. Money that is not profit — kept apart</h2>
+        <h2 style={h2}>2. Money that is not profit — shown separately so it never confuses the number above</h2>
         <div style={hint}>These amounts are real, but none of them is inside the net profit above. They are shown here so they can never inflate it — or be forgotten.</div>
         <div className="avoid-break" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
           <Kept k="receivable" title={`Clients still owe — at ${fmtDate(st.end)}`} value={money(kept.receivable)} tone={kept.receivable > 0 ? RED : GREEN}>

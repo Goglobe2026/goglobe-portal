@@ -9,7 +9,7 @@ import { monthLabel } from '@/lib/finance';
 // really ours (appointment / embassy fees are passed on), what clients have paid and
 // what is still owed and carried into the coming months.
 
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 const tile = (label: string, value: string, sub?: string, color?: string, testid?: string) => (
   <div key={label} data-testid={testid} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px', background: '#fff', minWidth: 0 }}>
     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>

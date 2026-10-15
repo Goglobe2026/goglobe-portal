@@ -8,7 +8,7 @@ export function Stamp({ text, className = '' }: { text: string; className?: stri
     new: 'st-new', scheduled: 'st-scheduled', contacted: 'st-contacted', active: 'st-active',
     qualified: 'st-qualified', converted: 'st-converted', approved: 'st-approved',
     completed: 'st-completed', lost: 'st-lost', closed: 'st-closed',
-    refused: 'st-refused', missed: 'st-missed',
+    refused: 'st-refused', missed: 'st-missed', paid: 'st-approved', due: 'st-contacted',
     'watching-for-slot': 'st-contacted', pending: 'st-refused', rejected: 'st-refused',
     open: 'st-approved', 'limited-seats': 'st-contacted', full: 'st-refused',
     given: 'st-approved', taken: 'st-contacted', 'paid-off': 'st-approved',

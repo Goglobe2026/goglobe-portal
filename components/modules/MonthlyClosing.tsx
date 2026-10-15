@@ -12,7 +12,7 @@ import { caseDue, forecast, describeChunk, STATUS_COLOR } from '@/lib/paymentPla
 import type { MonthlyClosing as ClosingRecord } from '@/lib/types';
 
 const ARIAL = 'Arial, Helvetica, sans-serif';
-const NAVY = '#14213D';
+const NAVY = 'var(--accent-ink)';
 
 export function MonthlyClosing() {
   const { monthlyClosings } = useAppData();

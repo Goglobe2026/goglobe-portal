@@ -15,8 +15,8 @@ import { Pricing } from '@/components/modules/Pricing';
 import { HR } from '@/components/modules/HR';
 import { PerfWatch } from '@/components/modules/PerfWatch';
 import { Attendance } from '@/components/modules/Attendance';
-import { Accounts } from '@/components/modules/Accounts';
-import { Reports } from '@/components/modules/Reports';
+import { MoneyHome } from '@/components/modules/MoneyHome';
+import { FinanceFrame, BooksAndBanks, FINANCE_TABS } from '@/components/modules/FinanceFrame';
 import { ProfitGrowth } from '@/components/modules/ProfitGrowth';
 import { MonthlyClosing } from '@/components/modules/MonthlyClosing';
 import { Payouts } from '@/components/modules/Payouts';
@@ -101,13 +101,17 @@ function PortalApp() {
       {tab === 'hr' && <HR />}
       {tab === 'perfwatch' && <PerfWatch />}
       {tab === 'attendance' && <Attendance />}
-      {tab === 'accounts' && <Accounts />}
-      {tab === 'reports' && <Reports />}
-      {tab === 'closing' && <MonthlyClosing />}
-      {tab === 'payouts' && <Payouts />}
-      {tab === 'profit' && <ProfitGrowth />}
+      {FINANCE_TABS.includes(tab) && (
+        <FinanceFrame tab={tab} go={setTab}>
+          {tab === 'money' && <MoneyHome go={setTab} />}
+          {tab === 'billing' && <BillingCenter />}
+          {tab === 'payouts' && <Payouts />}
+          {tab === 'profit' && <ProfitGrowth />}
+          {tab === 'closing' && <MonthlyClosing />}
+          {(tab === 'accounts' || tab === 'reports') && <BooksAndBanks start={tab === 'reports' ? 'banks' : 'entries'} />}
+        </FinanceFrame>
+      )}
       {tab === 'payroll' && <Payroll />}
-      {tab === 'billing' && <BillingCenter />}
       {tab === 'complaints' && <Complaints />}
       {tab === 'appraisal' && <Appraisal />}
       {tab === 'announcements' && <Announcements />}

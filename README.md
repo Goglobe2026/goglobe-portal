@@ -23,10 +23,10 @@ Dashboard, Leads, Campaigns (budgets and ad spend), Cases (full case file with
 color-coded document checklist, discounts, quality check, manager review),
 Appointments (calendar booking view), Pricing by country, HR Department
 (employee directory, full onboarding form, PIN reset, appreciation/fines,
-leave requests), Attendance, Payroll, Accounts, Monthly Closing, Reports &
-Finance (weekly comparison, monthly trend, expense breakdown, bank accounts,
-journal vouchers), Quality Control, Team Messages, and My Portal (employee
-self-service).
+leave requests), Attendance, Payroll, Finance (Overview, Who Owes Us, Money
+Going Out, Profit & Growth, Month-End, Books & Banks — every entry, bank accounts,
+journal vouchers), Quality Control, Team Messages, the built-in Assistant, and
+My Portal (employee self-service).
 
 The sidebar groups every module under small headings (Marketing, Cases &
 Clients, HR, Finance, Quality & Team). Click a heading for that group's
@@ -228,7 +228,7 @@ Many clients pay half now and the rest at the appointment or file collection.
   The unpaid rest is not revenue yet: it stays in the Monthly Closing's *Pending
   collections carried forward* list with the next part, its amount and date, and a
   forecast of which month it should arrive. Next month it appears again until paid.
-* **Billing Center** shows what is overdue, due this week, promised or without a date
+* **Who Owes Us** shows what is overdue, due this week, promised or without a date
   — part by part for plan files, with a forecast by month. The daily report and
   Performance Watch use the same figures.
 
@@ -314,16 +314,40 @@ Many clients pay half now and the rest at the appointment or file collection.
   visa tip, referral request, client story. You can edit it, copy it or share it on
   WhatsApp. You can send the post of the day to every sales agent — it appears in
   their portal as an announcement.
-* **Ask the coach.** Any agent who is stuck types what is happening and gets the steps
-  and a message to send. Without an AI key this answers from the built-in guide. To
-  make it a ChatGPT-style assistant that answers any question, add **one** of these in
-  Render → Environment: `ANTHROPIC_API_KEY` (Claude) or `OPENAI_API_KEY` (ChatGPT), then
-  redeploy. Optional: `COACH_MODEL` / `COACH_OPENAI_MODEL` to choose the model,
-  `COACH_PROVIDER` (`anthropic` or `openai`) if both keys are set. The key stays on the
-  server. Only the country, stage and number of follow-ups of a chosen lead are sent to
-  the AI — never a name, phone number or note — each person is limited to 40 questions
-  per 10 minutes, and the assistant is told never to promise visa approval or suggest
-  false documents. If the AI service is down the built-in guide answers instead.
+* **Ask the coach.** The *Ask the coach* tab is the built-in assistant (see the next section) — the same
+  conversation as the round button in the corner of every screen.
+
+## The built-in assistant (round button on every screen, Ctrl/⌘ + K)
+
+It needs **no AI service and no key**. It runs inside the portal and answers from three things:
+your live portal data, the company's own sales and process guide, and a visa knowledge base
+for the 12 countries you work with.
+
+* **Head Manager:** "What needs my attention today?", "How much have we received this month?",
+  "Who owes us money?", "What do we have to pay out?", "Who is my top agent?", "Finance in one minute",
+  a lead or case by name / GG number / phone, appointments, complaints, requests, group tours.
+  Answers carry buttons that open the right screen.
+* **Employees:** "What should I do today?", which leads need a follow-up, "The client says the fee is
+  too high", a first message for a UK lead, document lists, how to record a payment — with a
+  ready WhatsApp message to copy or send. An employee only ever sees their own leads and numbers;
+  firm-wide money is for the Head Manager.
+* It understands English and Roman Urdu, remembers the country / lead / case you were just talking
+  about ("and the refusals?"), and can answer *shorter*, *in Roman Urdu*, *in English*, or with *more detail*.
+* It says so when it does not understand instead of guessing, never promises visa approval, and refuses
+  to help with fake or edited documents.
+* It is rules- and knowledge-based, not a general AI model, so it cannot answer questions outside
+  these topics. If you ever get an AI key it can be added behind the same chat window without changing
+  how the portal looks.
+
+## A different look for every module, and a Finance you can read
+
+* Every module has its own colour, banner and icon (set in `lib/moduleTheme.ts`), so you always know
+  where you are. The shared building blocks are in `components/ui/Kit.tsx`.
+* **Finance is one flow of six screens** with the same tabs on each: *Overview → Who owes us → Money
+  going out → Profit & growth → Month-end → Books & banks*. Everything is built from four plain numbers:
+  **Received** (cash that arrived) − **Spent** (cash that left) = **What we kept**, and next to them
+  **Clients still owe** (not counted until it is paid). The Overview explains the month in plain
+  sentences and lists what needs your attention.
 
 ## Running it locally
 
