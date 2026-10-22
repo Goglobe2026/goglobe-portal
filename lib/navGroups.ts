@@ -27,6 +27,7 @@ export const NAV_GROUPS: NavGroup[] = [
     tiles: [
       { id: 'cases', label: 'Cases', blurb: 'Active and closed visa applications' },
       { id: 'appointments', label: 'Appointments', blurb: 'Embassy dates, consultations, document collection' },
+      { id: 'slotdesk', label: 'Slot Desk', blurb: 'Who is waiting for a date, when new dates open, who is on duty — and what middlemen cost' },
       { id: 'referralagents', label: 'Referral Agents', blurb: 'External partners and their commissions' },
       { id: 'complaints', label: 'Complaints & Feedback', blurb: 'Client complaints, resolution tracking and ratings' },
       { id: 'clientdocs', label: 'Client Documents', blurb: 'Originals received, held, submitted and returned' },

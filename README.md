@@ -299,6 +299,130 @@ Many clients pay half now and the rest at the appointment or file collection.
   by desk** button on Leads gives every unassigned lead to the right desk's least busy
   person. Someone with no desk ticked is an all-rounder.
 
+## Slot Desk (Cases & Clients → Slot Desk) — Head Manager, admins, and staff marked “Slot Desk only”
+
+A planning and early-warning tool for the days when a centre opens new appointment dates, for **Belgium, France,
+Spain, Switzerland and Norway** (other Schengen states stay available on the waiting list). **It never connects to
+any visa website** and does not book anything. People book on the official site themselves (the client with our
+guidance, or our team); nothing is held, bought in bulk or resold. Regular employees cannot see the tab and the
+server refuses to give them its data (403 on every slot collection) — except a staff member the Head Manager has marked
+**Slot Desk only** (see *Running it with one person*).
+
+All times are shown in Pakistan time (UTC+5).
+
+### The honest position on automatic alerts
+
+No provider offers an approved feed, API or alert service for appointment dates, and BLS / VFS block automatic
+booking tools (liveness check, CAPTCHA, SMS code). A monitor that logs in or reads booking pages would break those
+rules and could get the team's access blocked. So **automatic checking is OFF for all five countries** and every
+country runs in *manual adapter* mode: people report what they see, the engine checks it, files it once, labels
+exactly how sure we are, and gets the right people moving. If a provider ever approves access in writing, it plugs
+into the same engine (`lib/slotproviders.ts` → `ADAPTERS`) without changing the screens.
+
+### Running it with one person
+
+Nothing here can watch a website, so the work that cannot be automated is *looking at the official pages* and *calling the
+clients who are ready*. The portal is built so that one person can do both without keeping track of anything in her head.
+
+* **Check round (top of the Countries tab).** The portal says how many official pages are due and puts the one furthest behind first.
+  *Start check round* walks through them one by one: the page opens in a new tab, she taps **Nothing is open**, **Dates are showing** or
+  **The page will not open**, and the portal does the rest — marks the page checked, files the alert (with her name, the time, the link and
+  the centre if she knows it; the same sighting twice in 20 minutes is filed once), and writes the audit line. *Dates are showing* goes
+  straight to a "move now" card: open the live board, or alert the team. A page that would not open is logged but **stays on the list**,
+  because she did not really see it. *Skip* records nothing.
+* **How often.** One setting makes every page due every 1, 2, 3, 4, 6, 12 or 24 hours (per-country settings are still under
+  Providers & health). A page is *Fresh* until it is that old, *Due* until twice that, then *Overdue*; countries that were never checked come first.
+* **Reminders.** A count on the Slot Desk sidebar item and in the browser tab title, and a slim strip at the top of every screen (*Start check round* / *Later* =
+  30 minutes; it sits in the page, never floating over buttons). Reminders run **9 am to 8 pm Pakistan time, at most every 30 minutes**, can be switched off per computer,
+  and an optional browser pop-up can be allowed. **They only work while the portal is open in a browser** — a web page cannot wake a closed
+  computer or phone. (Messages that reach a closed phone would need a WhatsApp Business template and a paid sender, which are not set up.)
+* **Check history.** Read back from the audit trail: how many checks, how many times dates were showing, how many times a page failed
+  to open, and when (three-hour stretches, Pakistan time). It names a "best stretch" only after 10 checks, and says that it only shows when
+  *we looked*, not when the provider releases dates.
+* **Seats at an opening (Stand-by).** *People on the call at that time* (from the rota, or 1–6) × *clients one person can guide* = seats.
+  The most urgent ready clients fill the seats (**This opening**); the others are marked **Next opening** and get no stand-by message,
+  so nobody is told to wait by the phone and then left without help. With no rota entered nobody is held back.
+* **Slot Desk only.** In *HR → Open profile* tick **Slot Desk only** for the person who does this work. She sees *My Portal* and *Slot Desk*
+  and nothing else; the server lets her read and write the seven slot lists and still refuses every list with money, pay or private
+  records in it (and the team list, so she cannot give herself more). This is a much smaller thing to hand over than **full admin**, which
+  is the same as the Head Manager login. Unticking it takes the access away at once.
+
+One honest limit: a single person can guide about **3 to 5 clients at once** at an opening. The portal tells you how many fit; for more,
+add people to the rota or accept that the rest wait for the next opening or a cancelled slot.
+
+### Tabs
+
+* **Countries (opening screen).** The check round panel, then one card for each of the five countries: provider, mode ("Manual · no approved feed"),
+  clients waiting and urgent, official release time if one was announced, last alert, and whether the official page
+  has been looked at in time (*Fresh / Due / Overdue / Never checked / Paused*). *Mark page checked* records who looked
+  and when. The banner shows *Official releases ahead*.
+* **Alerts.** Log what was announced or seen. Six kinds, each with its own rules about how sure we can be:
+  *Release announced* and *Confirmed future release* need an **Official notice** and a link (the official page is
+  pre-filled); a confirmed future release also needs a date and time that is still in the future, and can add itself to
+  Release times. *Dates seen* and *Cancelled slot seen* are observations: they can only be "Seen by staff",
+  "Reported by client" or "Unverified", and are always worded as *a staff observation, not a provider announcement — the
+  dates may already be gone*. *Check by hand* and *Source not opening* are cautions. The same alert reported twice in a
+  short window is filed once (20 min for observations, 60 min for cautions, a day for announcements). Overdue
+  official-page checks appear as *manual verification required* reminders with an *I checked it* button. Filter by country
+  and kind, mark handled, download CSV.
+* **Alert the team.** Each alert opens a message that claims no more than the alert does. It opens WhatsApp for one person at a time,
+  writes that down (*Opened*), and the person pressing confirms *Sent ✓* or *Did not go*. Each person is told once; a failed try
+  can be repeated up to 3 times, then the screen says to phone them. The **notification log** shows every try (who, when,
+  status, attempt). People set as "alerted first" for a country are listed first.
+  **Email is not built** (no mail service is connected); WhatsApp links and copy-to-clipboard are the only channels.
+* **Stand-by.** The hour before dates are *likely* to open. Nothing can know the exact minute (no provider gives advance notice),
+  so this tab prepares the people instead. Pick the country and the time to be ready for (Pakistan time): it fills in from the
+  opening already entered under Release times & rota, and *Official notice* can only be chosen when an official notice for that exact
+  date and time is on file — otherwise the time is an *Our estimate* and the message says so. It then splits the waiting clients into
+  **Ready** (all six readiness items), **Nearly ready** and **Not ready**, shows how many staff are needed (clients one person can
+  guide at once, 2–5, default 3) against the people on the rota for that time, and who is guiding whom (with a warning when someone has
+  too many, or a client has nobody). Ready clients get a stand-by WhatsApp message (be free from 30 minutes before, phone and passport
+  beside you; *you* do the live selfie and the SMS code, we guide; no date is promised); clients who are not ready get a message listing
+  exactly the papers still missing. Same rules as team alerts: the portal only opens WhatsApp, staff confirm *Sent* or *Did not go*, each
+  client is told once per window, a failed try can be repeated up to 3 times. Tries appear in the notification log and the audit trail
+  (names only). The last window you used is remembered in your browser only.
+* **Waiting list.** Every client who needs a date: country, centre, people, visa type, purpose, the date range the
+  client can accept, "must travel by", priority, who looks after them, and a six-item **readiness checklist**
+  (passport valid, photos, insurance, bank/income papers, travel plan and stay, form filled) shown as *Ready / Almost ready /
+  Not ready* (this is what Stand-by uses). The same phone or name cannot be added twice for the same country. Search by name or phone and filter by staff.
+  *Booked* asks for the date, time, how it was booked and the **official confirmation reference**, then puts the appointment in the
+  Appointments calendar. Passport numbers in the booking pack are never in exports or the audit trail.
+* **Live booking.** The board for the moment dates open: waiting clients in order, *Call*, *WhatsApp*, *They are booking*,
+  *Booked*, *No slot*, *Try again*. Saved for the whole team so two people never call the same client. The client books in
+  their own name; the team guides.
+* **Release times & rota.** The time a centre says new dates open (weekly days, or one date), who is on duty, and where it
+  came from: **Official notice** (with a link) or **Our estimate**. The top of the screen counts down to the next opening.
+* **Where to book.** A card per country (Spain, Belgium, Norway, France, Switzerland, Italy, Netherlands): who takes the
+  application in Pakistan, the steps, the rules, the official pages and questions to put to the provider in writing, with how much of it
+  was checked and when. France and Switzerland are marked *partly checked*.
+* **Providers & health.** The provider research table (country, provider, official URL, advance release information, approved
+  integration available?, verification evidence, implementation status) with a plain verdict; a health row per country
+  (fresh/due/overdue/paused, alerts in 7 days, page errors in 7 days); per-country settings (official URL, check every N hours,
+  who to alert first, pause); and the log of pages that would not open.
+* **Results.** After each opening log *Got slots / Not open / Missed*. After 5 results it shows the best days and hours — labelled as an
+  estimate from our own log, never an announcement.
+* **Broker cost.** The extra fee paid when a slot was a *Paid middleman* one (separate tracker, not posted to Finance).
+* **Audit trail.** Who did what and when, for cases, alerts, releases, results, notices, page checks, settings and clean-ups.
+  It records names and actions only — never phone numbers, passport numbers or booking-pack text. Filter and search; the newest 3000 lines are kept.
+
+### Data, exports and clean-up
+
+* Collections (admin-only, plus staff marked *Slot Desk only*): `slotwaiting`, `slotreleases`, `slotlog`, `slotalerts`, `slotnotices`, `slotaudit`, `slotconfig`.
+* **CSV downloads** for clients, alerts and the audit trail. Cells that start with `=`, `+`, `-` or `@` get a leading quote so Excel cannot run them
+  as formulas. The client report never contains the booking-pack details.
+* **Clean-up (Audit trail tab).** Choose 90 / 180 / 365 / 730 days: it counts, then removes finished (booked or cancelled) clients and audit lines older than
+  that. Clients still waiting are never touched. The clean-up itself is written to the audit trail.
+* **Backup.** Everything lives in the JSON files on the Render disk: use Render's disk snapshots, or download the CSVs regularly.
+* **Test and production.** Run a separate Render service (own disk) for testing. No provider login, key or token is stored anywhere in the portal.
+
+### What is still manual, and what needs a provider's approval
+
+* Someone has to open each official page (the check round makes that one tap per page); the portal reminds them while it is open in a browser.
+* Reminders cannot reach a closed computer or phone, and email is not built.
+* Every observation is typed in by a person. Nothing reads a provider site.
+* For any automatic feed, written approval from the provider (BLS, VFS Global, AEG) is needed first; none exists today.
+* Spain, Switzerland and France were only partly verified from official pages (the Pakistan BLS site itself was not opened).
+
 ## Sales Coach (Marketing → Sales Coach, and inside every Sales agent's portal)
 
 * **What to do next.** Each agent sees their own leads sorted by what needs doing first:

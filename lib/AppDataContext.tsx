@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, Re
 import type {
   Lead, Case, Appointment, TeamMember, Transaction, Campaign, AttendanceRecord,
   RateCardEntry, Adjustment, BankAccount, JournalVoucher, EmployeeRequest,
-  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, MonthlyClosing, PayrollCategory, PayRun, StaffAdvance, Complaint, StaffTarget, Appraisal, Announcement, DocRecord, Letter, QcCheck, TeamMessage, LeadSource, Session, CollectionName,
+  ActivityItem, Testimonial, ReferralAgent, GroupTour, TourMember, CountryNote, Loan, PersonalExpense, ClientFeedback, MarketingMaterial, FollowUpTemplate, Invoice, MonthlyClosing, PayrollCategory, PayRun, StaffAdvance, Complaint, StaffTarget, Appraisal, Announcement, DocRecord, Letter, QcCheck, TeamMessage, LeadSource, SlotRequest, SlotRelease, SlotAttempt, SlotAlert, SlotNotice, SlotAudit, SlotConfig, Session, CollectionName,
 } from './types';
 
 type Updater<T> = T | ((prev: T) => T);
@@ -127,6 +127,13 @@ interface AppDataContextValue {
   qcChecks: QcCheck[]; setQcChecks: (u: Updater<QcCheck[]>) => void;
   messages: TeamMessage[]; setMessages: (u: Updater<TeamMessage[]>) => void;
   leadSources: LeadSource[]; setLeadSources: (u: Updater<LeadSource[]>) => void;
+  slotWaiting: SlotRequest[]; setSlotWaiting: (u: Updater<SlotRequest[]>) => void;
+  slotReleases: SlotRelease[]; setSlotReleases: (u: Updater<SlotRelease[]>) => void;
+  slotLog: SlotAttempt[]; setSlotLog: (u: Updater<SlotAttempt[]>) => void;
+  slotAlerts: SlotAlert[]; setSlotAlerts: (u: Updater<SlotAlert[]>) => void;
+  slotNotices: SlotNotice[]; setSlotNotices: (u: Updater<SlotNotice[]>) => void;
+  slotAudit: SlotAudit[]; setSlotAudit: (u: Updater<SlotAudit[]>) => void;
+  slotConfig: SlotConfig[]; setSlotConfig: (u: Updater<SlotConfig[]>) => void;
   ceoPin: string; setCeoPin: (u: Updater<string>) => void;
   playbook: string; setPlaybook: (u: Updater<string>) => void;
   sheetSyncUrl: string; setSheetSyncUrl: (u: Updater<string>) => void;
@@ -143,7 +150,7 @@ const COLLECTION_KEYS: CollectionName[] = [
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours', 'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances',
-  'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'qcchecks', 'messages', 'leadsources',
+  'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'qcchecks', 'messages', 'leadsources', 'slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig',
 ];
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
@@ -188,6 +195,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const qcChecks = useSynced<QcCheck[]>('qcchecks', []);
   const messages = useSynced<TeamMessage[]>('messages', []);
   const leadSources = useSynced<LeadSource[]>('leadsources', []);
+  const slotWaiting = useSynced<SlotRequest[]>('slotwaiting', []);
+  const slotReleases = useSynced<SlotRelease[]>('slotreleases', []);
+  const slotLog = useSynced<SlotAttempt[]>('slotlog', []);
+  const slotAlerts = useSynced<SlotAlert[]>('slotalerts', []);
+  const slotNotices = useSynced<SlotNotice[]>('slotnotices', []);
+  const slotAudit = useSynced<SlotAudit[]>('slotaudit', []);
+  const slotConfig = useSynced<SlotConfig[]>('slotconfig', []);
   const ceoPin = useSynced<string>('ceopin', '9999');
   const playbook = useSynced<string>('playbook', '');
   const sheetSyncUrl = useSynced<string>('sheetsyncurl', '');
@@ -202,6 +216,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     followuptemplates: followUpTemplates, invoices, monthlyclosings: monthlyClosings, payrollcategories: payrollCategories,
     payruns: payRuns, staffadvances: staffAdvances, complaints, stafftargets: staffTargets, appraisals, announcements,
     docregister: docRegister, letters, qcchecks: qcChecks, messages, leadsources: leadSources,
+    slotwaiting: slotWaiting, slotreleases: slotReleases, slotlog: slotLog,
+    slotalerts: slotAlerts, slotnotices: slotNotices, slotaudit: slotAudit, slotconfig: slotConfig,
   };
   const listsRef = useRef(lists);
   listsRef.current = lists;
@@ -292,7 +308,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             })
           )
         );
-        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, mcl, pcat, prun, sadv, cpl, stg, apr, ann, dreg, ltr, qcc, msg, lsr, pin, goal, pb, ssu] = results;
+        const [l, c, a, tm, tx, cp, att, rc, adj, bk, jv, req, act, tst, ra, gt, tmem, cn, ln, pe, cf, mm, fut, inv, mcl, pcat, prun, sadv, cpl, stg, apr, ann, dreg, ltr, qcc, msg, lsr, swt, srl, slg, sal, sno, sau, scf, pin, goal, pb, ssu] = results;
         leads.setLocal(l || []); cases.setLocal(c || []); appointments.setLocal(a || []); team.setLocal(tm || []);
         transactions.setLocal(tx || []); campaigns.setLocal(cp || []); attendance.setLocal(att || []); rateCard.setLocal(rc || []);
         adjustments.setLocal(adj || []); bankAccounts.setLocal(bk || []); journalVouchers.setLocal(jv || []);
@@ -305,6 +321,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         complaints.setLocal(cpl || []); staffTargets.setLocal(stg || []); appraisals.setLocal(apr || []);
         announcements.setLocal(ann || []); docRegister.setLocal(dreg || []); letters.setLocal(ltr || []);
         qcChecks.setLocal(qcc || []); messages.setLocal(msg || []); leadSources.setLocal(lsr || []);
+        slotWaiting.setLocal(swt || []); slotReleases.setLocal(srl || []); slotLog.setLocal(slg || []);
+        slotAlerts.setLocal(sal || []); slotNotices.setLocal(sno || []); slotAudit.setLocal(sau || []); slotConfig.setLocal(scf || []);
         ceoPin.setLocal(typeof pin === 'string' ? pin : '9999');
         playbook.setLocal(typeof pb === 'string' ? pb : '');
         sheetSyncUrl.setLocal(typeof ssu === 'string' ? ssu : '');
@@ -358,6 +376,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     qcChecks: qcChecks.value, setQcChecks: qcChecks.setAndSave,
     messages: messages.value, setMessages: messages.setAndSave,
     leadSources: leadSources.value, setLeadSources: leadSources.setAndSave,
+    slotWaiting: slotWaiting.value, setSlotWaiting: slotWaiting.setAndSave,
+    slotReleases: slotReleases.value, setSlotReleases: slotReleases.setAndSave,
+    slotLog: slotLog.value, setSlotLog: slotLog.setAndSave,
+    slotAlerts: slotAlerts.value, setSlotAlerts: slotAlerts.setAndSave,
+    slotNotices: slotNotices.value, setSlotNotices: slotNotices.setAndSave,
+    slotAudit: slotAudit.value, setSlotAudit: slotAudit.setAndSave,
+    slotConfig: slotConfig.value, setSlotConfig: slotConfig.setAndSave,
     ceoPin: ceoPin.value, setCeoPin: ceoPin.setAndSave,
     playbook: playbook.value, setPlaybook: playbook.setAndSave,
     sheetSyncUrl: sheetSyncUrl.value, setSheetSyncUrl: sheetSyncUrl.setAndSave,

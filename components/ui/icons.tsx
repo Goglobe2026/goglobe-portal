@@ -27,6 +27,7 @@ export const TILE_ICONS: Record<string, ReactElement> = {
   testimonials: <path d="M7 15h2l2-4V7H5v4h3l-1 4zm8 0h2l2-4V7h-6v4h3l-1 4z" strokeLinecap="round" strokeLinejoin="round" />,
   cases: <path d="M3 8a2 2 0 012-2h4l2 2h8a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" strokeLinecap="round" strokeLinejoin="round" />,
   appointments: <path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 011 1v12a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1zM8 13h2M14 13h2M8 17h2" strokeLinecap="round" strokeLinejoin="round" />,
+  slotdesk: <path d="M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3.5 2M3 3l2.2 2.2M21 3l-2.2 2.2" strokeLinecap="round" strokeLinejoin="round" />,
   referralagents: <path d="M18 8a3 3 0 11-6 0 3 3 0 016 0zM6 8a3 3 0 106 0M2 19c0-2.8 2-5 5-5M13 19c0-2.5 1.8-4.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />,
   hr: <path d="M9 11a3 3 0 100-6 3 3 0 000 6zM3 20c0-3 2.5-5 6-5s6 2 6 5M17 11a2.5 2.5 0 100-5M16 20c0-2.5-1.5-4-3.5-4.5" strokeLinecap="round" strokeLinejoin="round" />,
   attendance: <path d="M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z" strokeLinecap="round" strokeLinejoin="round" />,

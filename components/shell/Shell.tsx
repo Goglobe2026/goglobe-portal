@@ -9,6 +9,7 @@ import { ModuleHero, initials } from '@/components/ui/Kit';
 import { themeOf, themeVars } from '@/lib/moduleTheme';
 import { useHeroStats } from './useHeroStats';
 import { AssistantDock, openAssistant } from './AssistantDock';
+import { SlotReminderBanner, useSlotDue } from './SlotReminder';
 
 export const TITLES: Record<string, [string, string]> = {
   hub: ['GoGlobe Ops', 'Choose a module to get started'],
@@ -24,6 +25,7 @@ export const TITLES: Record<string, [string, string]> = {
   'grp-cases': ['Cases & Clients', 'Active visa cases, appointments, and referral partners'],
   cases: ['Cases', 'Active and closed visa applications'],
   appointments: ['Appointments', 'Embassy dates, consultations and document collections — any time, any day'],
+  slotdesk: ['Slot Desk', 'Everyone waiting for a date, the times new dates open, who is on duty — and what middlemen cost us'],
   referralagents: ['Referral Agents', 'External partners who bring clients directly, paid on net profit — separate from your own staff'],
   grouptours: ['Group Tours', 'Package tour registrations, traveler rosters, and public QR verification'],
   'grp-hr': ['HR', 'Your team — records, attendance, and requests'],
@@ -64,6 +66,7 @@ export function Shell({
   const { session, setSession, team, leads, requests, clientFeedback, transactions, monthlyClosings, messages } = useAppData();
   const isCeo = session?.type === 'ceo' || (session?.type === 'employee' && !!team.find(t => t.id === session.staffId)?.isAdmin);
   const me = session?.type === 'employee' ? team.find(t => t.id === session.staffId) : null;
+  const isSlot = !isCeo && !!me?.slotDesk;      // "Slot Desk only": My Portal + Slot Desk
   const title = TITLES[currentTab] || ['', ''];
   const heroStats = useHeroStats(currentTab);
   // the assistant (and anything else) can ask the portal to open a screen
@@ -80,8 +83,10 @@ export function Shell({
   // A gentle nudge: last month had activity but hasn't been closed yet.
   const prevMonthKey = (() => { const [y, m] = todayStr.slice(0, 7).split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
   const closingPending = isCeo && transactions.some(t => t.date.slice(0, 7) === prevMonthKey) && !monthlyClosings.some(c => c.month === prevMonthKey) ? 1 : 0;
+  const slotDue = useSlotDue(isCeo || isSlot);
   const ITEM_BADGES: Record<string, number> = {
     leads: overdueLeads,
+    slotdesk: slotDue.length,
     hr: pendingRequests + urgentFeedback,
     closing: closingPending,
     messages: unreadFor(messages, myMessageId(session)),
@@ -158,7 +163,10 @@ export function Shell({
               ))}
             </>
           ) : (
-            <SideLink id="myportal" label="My Portal" active collapsed={collapsed} badge={unreadFor(messages, myMessageId(session))} onClick={() => {}} />
+            <>
+              <SideLink id="myportal" label="My Portal" active={!isSlot || currentTab === 'myportal'} collapsed={collapsed} badge={unreadFor(messages, myMessageId(session))} onClick={() => { if (isSlot) onTabChange('myportal'); }} />
+              {isSlot && <SideLink id="slotdesk" label="Slot Desk" active={currentTab === 'slotdesk'} collapsed={collapsed} badge={ITEM_BADGES.slotdesk} onClick={() => onTabChange('slotdesk')} />}
+            </>
           )}
           <button onClick={logout} title="Log out" className="nav-link mt-3" style={{ color: '#F3B8B0', justifyContent: collapsed ? 'center' : undefined }}>
             <span className="nav-ico" style={{ ['--dot' as string]: '#F3B8B0' }}><Icon id="logout" size={15} /></span>
@@ -171,7 +179,7 @@ export function Shell({
             <span className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[13px] text-white flex-none" style={{ background: 'linear-gradient(135deg,#C9922E,#E0B04F)' }}>{initials(who)}</span>
             <div className="min-w-0">
               <b className="text-white block truncate text-[13px]">{who}</b>
-              {session?.type === 'ceo' ? 'Full access to every module' : isCeo ? 'Admin access, granted by the Head Manager' : 'You see only your own work'}
+              {session?.type === 'ceo' ? 'Full access to every module' : isCeo ? 'Admin access, granted by the Head Manager' : isSlot ? 'Your own work, and Slot Desk' : 'You see only your own work'}
             </div>
           </div>
         )}
@@ -182,7 +190,7 @@ export function Shell({
           style={{ borderBottom: '1px solid #E3E9F2', background: 'rgba(255,255,255,.82)', backdropFilter: 'blur(12px)' }}>
           <div className="flex items-center gap-2 text-[13px] text-[var(--muted)] min-w-0">
             <button onClick={() => onTabChange('hub')} className="hover:text-[var(--ink)] font-medium" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>Home</button>
-            {group && !group.standalone && group.id !== currentTab && (<><span>›</span><button onClick={() => onTabChange(group.id)} className="hover:text-[var(--ink)] font-medium" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>{group.label}</button></>)}
+            {group && !group.standalone && group.id !== currentTab && !isSlot && (<><span>›</span><button onClick={() => onTabChange(group.id)} className="hover:text-[var(--ink)] font-medium" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>{group.label}</button></>)}
             {currentTab !== 'hub' && (<><span>›</span><b className="text-[var(--ink)] truncate">{title[0]}</b></>)}
           </div>
           <div className="flex items-center gap-2.5">
@@ -194,6 +202,7 @@ export function Shell({
 
         <div className="themed stage" style={themeVars(currentTab) as React.CSSProperties} data-tab={currentTab}>
           <div className="px-7 py-6 pb-20 max-w-[1320px] max-md:px-4" key={currentTab}>
+            {(isCeo || isSlot) && <SlotReminderBanner due={slotDue} />}
             {!noHero && (
               <div className="mb-5 no-print">
                 <ModuleHero tab={currentTab} title={title[0]} subtitle={title[1] || themeOf(currentTab).tagline} stats={heroStats} />

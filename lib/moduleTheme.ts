@@ -30,6 +30,7 @@ export const THEMES: Record<string, ModuleTheme> = {
   'grp-cases':   T(221, 'lines',    'Cases & Clients',  'Visa files, appointments and partners', 70),
   cases:         T(221, 'lines',    'Cases & Clients',  'Every visa file, newest first — month by month', 70),
   appointments:  T(196, 'dots',     'Cases & Clients',  'Embassy dates and consultations coming up', 72),
+  slotdesk:      T(62,  'chevrons', 'Cases & Clients',  'Who is waiting for a date, and when new dates open', 62),
   referralagents:T(252, 'diamonds', 'Cases & Clients',  'Partners who bring us clients — and what we owe them', 58),
   complaints:    T(350, 'plus',     'Cases & Clients',  'Problems raised by clients — solved and tracked', 66),
   clientdocs:    T(205, 'grid',     'Cases & Clients',  'Where every original document is right now', 40),

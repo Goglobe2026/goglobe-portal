@@ -67,7 +67,7 @@ export function HR() {
             {team.map(t => (
               <tr key={t.id} style={t.employmentStatus && t.employmentStatus !== 'Active' && t.employmentStatus !== 'On Leave' ? { opacity: 0.55 } : undefined}>
                 <td className="font-medium">
-                  {t.name}{t.isAdmin && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1.5" style={{ background: 'var(--red)', color: '#fff' }}>ADMIN</span>}
+                  {t.name}{t.isAdmin && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1.5" style={{ background: 'var(--red)', color: '#fff' }}>ADMIN</span>}{t.slotDesk && !t.isAdmin && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1.5" style={{ background: 'var(--accent-soft-2)', color: 'var(--accent-ink)' }} data-testid="hr-slotdesk-chip">SLOT DESK</span>}
                   <div className="font-mono-ui text-xs">{t.employeeId}</div>
                   {t.employmentStatus && t.employmentStatus !== 'Active' && (
                     <div className="mt-0.5"><Stamp text={t.employmentStatus} /></div>
@@ -355,6 +355,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
   const [performanceCategory, setPerformanceCategory] = useState<TeamMember['performanceCategory']>(t?.performanceCategory || 'Standard');
   const [employmentStatus, setEmploymentStatus] = useState<TeamMember['employmentStatus']>(t?.employmentStatus || 'Active');
   const [isAdmin, setIsAdmin] = useState(t?.isAdmin || false);
+  const [slotDesk, setSlotDesk] = useState(t?.slotDesk || false);
   const [lastWorkingDay, setLastWorkingDay] = useState(t?.lastWorkingDay || '');
   const [monthlyAllowance, setMonthlyAllowance] = useState(t?.monthlyAllowance || 0);
   const [guardianName, setGuardianName] = useState(t?.guardianName || '');
@@ -373,7 +374,7 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
       education, experience, contractType, contractStart, contractEnd, shiftStart, shiftEnd,
       salary, commissionPercent, bonusPerClose, jobDescription, employeeId, pin, lastSalaryPaid: t?.lastSalaryPaid || '',
       monthlyQuota, performanceCategory, employmentStatus, lastWorkingDay, monthlyAllowance,
-      guardianName, guardianPhone, address, contractPdf, contractPdfName, isAdmin,
+      guardianName, guardianPhone, address, contractPdf, contractPdfName, isAdmin, slotDesk: isAdmin ? false : slotDesk,
       specialties: specialties.length ? specialties : undefined,
     };
     if (t) setTeam(prev => prev.map(x => x.id === t.id ? data : x));
@@ -416,6 +417,17 @@ function EmployeeForm({ staff, onClose }: { staff: TeamMember | null; onClose: (
               This is the same as the Head Manager login — every module, every salary, every bank balance, and the ability to grant or remove this same access from anyone else, including you. Only turn this on for someone you'd trust with the Head Manager's own PIN.
             </div>
           </div>
+          {!isAdmin && (
+            <div className="card mb-3" style={{ background: slotDesk ? 'var(--accent-soft-2)' : '#F7F9FC' }} data-testid="hr-slotdesk-card">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input type="checkbox" className="!w-auto" checked={slotDesk} onChange={e => setSlotDesk(e.target.checked)} data-testid="hr-slotdesk" />
+                <span className="text-[13px] font-medium">Slot Desk only</span>
+              </label>
+              <div className="text-[11.5px] mt-1.5" style={{ color: 'var(--faint)' }}>
+                This person sees My Portal and Slot Desk, and nothing else: no finance, no pay, no other staff records, no leads or cases. Use it for whoever does the daily check round and guides clients when dates open — instead of full admin access.
+              </div>
+            </div>
+          )}
         </>
       )}
       <SectionHead title="Personal & contact details" />

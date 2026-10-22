@@ -2,12 +2,13 @@
 import { useAppData } from '@/lib/AppDataContext';
 import { money, today } from '@/lib/constants';
 import { caseCharge, casePaid } from '@/lib/finance';
+import { upcomingOfficial } from '@/lib/slotalerts';
 
 export interface HeroStat { label: string; value: string }
 
 // The two or three live numbers shown in the banner of a screen.
 export function useHeroStats(tab: string): HeroStat[] {
-  const { leads, cases, appointments, team, requests, complaints, groupTours, tourMembers, referralAgents, testimonials, announcements, qcChecks, leadSources } = useAppData();
+  const { leads, cases, appointments, team, requests, complaints, groupTours, tourMembers, referralAgents, testimonials, announcements, qcChecks, leadSources, slotWaiting, slotAlerts } = useAppData();
   const todayStr = today();
   const open = (l: { stage: string }) => !['Converted', 'Lost'].includes(l.stage);
   const dueLeads = leads.filter(l => l.nextFollowUp && l.nextFollowUp <= todayStr && open(l)).length;
@@ -33,6 +34,13 @@ export function useHeroStats(tab: string): HeroStat[] {
       return [
         { label: 'Coming up', value: String(appointments.filter(a => a.date >= todayStr && a.status === 'Scheduled').length) },
         { label: 'Today', value: String(appointments.filter(a => a.date === todayStr).length) },
+      ];
+    case 'slotdesk':
+      return [
+        { label: 'Waiting for a date', value: String(slotWaiting.filter(s => s.status === 'Waiting').length) },
+        { label: 'Urgent', value: String(slotWaiting.filter(s => s.status === 'Waiting' && s.priority === 'Urgent').length) },
+        { label: 'Booked this month', value: String(slotWaiting.filter(s => s.status === 'Booked' && (s.bookedAt || '').slice(0, 7) === monthKey).length) },
+        { label: 'Official releases ahead', value: String(upcomingOfficial(slotAlerts, Date.now()).length) },
       ];
     case 'referralagents':
       return [{ label: 'Partners', value: String(referralAgents.length) }, { label: 'Referred files', value: String(cases.filter(c => c.referralAgentId).length) }];

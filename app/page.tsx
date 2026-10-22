@@ -11,6 +11,7 @@ import { LeadSources } from '@/components/modules/LeadSources';
 import { AdsManager } from '@/components/modules/AdsManager';
 import { Cases } from '@/components/modules/Cases';
 import { Appointments } from '@/components/modules/Appointments';
+import { SlotDesk } from '@/components/modules/SlotDesk';
 import { Pricing } from '@/components/modules/Pricing';
 import { HR } from '@/components/modules/HR';
 import { PerfWatch } from '@/components/modules/PerfWatch';
@@ -63,6 +64,15 @@ function PortalApp() {
   const isAdminEmployee = !!myTeamRecord?.isAdmin;
 
   if (session.type === 'employee' && !isAdminEmployee) {
+    // "Slot Desk only": My Portal and Slot Desk, nothing else
+    if (myTeamRecord?.slotDesk) {
+      const opTab = tab === 'slotdesk' ? 'slotdesk' : 'myportal';
+      return (
+        <Shell currentTab={opTab} onTabChange={t => setTab(t === 'slotdesk' ? 'slotdesk' : 'myportal')}>
+          {opTab === 'slotdesk' ? <SlotDesk /> : <MyPortal />}
+        </Shell>
+      );
+    }
     return (
       <Shell currentTab="myportal" onTabChange={() => {}}>
         <MyPortal />
@@ -97,6 +107,7 @@ function PortalApp() {
       {tab === 'adsmanager' && <AdsManager />}
       {tab === 'cases' && <Cases prefillFromLead={prefillLead} clearPrefill={() => setPrefillLead(null)} />}
       {tab === 'appointments' && <Appointments />}
+      {tab === 'slotdesk' && <SlotDesk />}
       {tab === 'pricing' && <Pricing />}
       {tab === 'hr' && <HR />}
       {tab === 'perfwatch' && <PerfWatch />}

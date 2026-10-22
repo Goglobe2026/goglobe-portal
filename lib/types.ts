@@ -166,6 +166,87 @@ export interface ReferralAgent {
   createdAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Slot Desk — Head Manager and admins only. Nothing here connects to any visa website.
+// ---------------------------------------------------------------------------
+export type SlotHow = '' | 'Client booked, we guided' | 'Our team on the official site' | 'Paid middleman' | 'Other';
+export interface SlotRequest {
+  id: string; clientName: string; phone: string; caseId: string; apptId: string;
+  country: string; centre: string; applicants: number;
+  travelBy: string;                                   // YYYY-MM-DD or ''
+  priority: 'Urgent' | 'Normal' | 'Flexible';
+  status: 'Waiting' | 'Booked' | 'Cancelled';
+  slotDate: string; slotTime: string;
+  bookedHow: SlotHow;
+  middleman: string; premium: number;                 // extra PKR paid to a middleman (0 if none)
+  assignedTo: string;                                 // team member id
+  note: string; createdAt: string; bookedAt: string;
+  details?: string;                                   // what the booking form asks for, one per line (e.g. "Passport no: AB1234567")
+  live?: SlotLive;                                    // where this client is on the live booking board ('' = ready)
+  liveBy?: string;                                    // who is looking after them right now (name)
+  visaType?: string;                                  // Tourist, Business, Family / friends visit …
+  purpose?: string;                                   // one line: why they travel
+  dateFrom?: string; dateTo?: string;                 // the appointment dates the client can accept (YYYY-MM-DD)
+  confirmationRef?: string;                           // the official confirmation / reference number, once booked
+  ready?: string[];                                   // readiness checklist items that are ticked
+}
+export type SlotLive = '' | 'Calling' | 'Booking' | 'No slot';
+export interface SlotRelease {
+  id: string; country: string; centre: string; label: string;
+  time: string;                                       // HH:MM, Pakistan time
+  days: number[];                                     // 0 = Sunday … 6 = Saturday (repeats weekly)
+  oneOffDate: string;                                 // YYYY-MM-DD: a single opening instead of a weekly one
+  rota: string[];                                     // team member ids who are on duty at that time
+  note: string; active: boolean;
+  basis?: 'Official notice' | 'Our estimate';         // an announced time, or our own guess (old entries count as a guess)
+  sourceUrl?: string;                                 // link to the official page that announced it
+}
+export interface SlotAttempt {
+  id: string; releaseId: string; date: string;
+  outcome: 'Got slots' | 'Not open' | 'Missed'; slotsGot: number; by: string; note: string;
+  time?: string;                                      // HH:MM Pakistan time when it was checked / dates appeared
+}
+
+// ---- early-warning: alerts, the notification log, the audit trail and per-country settings ----
+export type AlertCategory =
+  | 'OFFICIAL RELEASE ANNOUNCED'
+  | 'OFFICIALLY CONFIRMED FUTURE RELEASE'
+  | 'APPOINTMENT AVAILABILITY OBSERVED'
+  | 'CANCELLATION AVAILABILITY OBSERVED'
+  | 'MANUAL VERIFICATION REQUIRED'
+  | 'PROVIDER SOURCE UNAVAILABLE';
+export type AlertVerification = 'Official notice' | 'Seen by staff' | 'Reported by client' | 'Unverified';
+export interface SlotAlert {
+  id: string; category: AlertCategory;
+  country: string; centre: string; provider: string;
+  at: string;                                         // ISO time it was announced / observed (real UTC time)
+  source: string; sourceUrl: string;                  // where it came from, and the link to it
+  verification: AlertVerification;
+  opensDate: string; opensTime: string;               // only for a confirmed future release (Pakistan time)
+  note: string; loggedBy: string;
+  handled: boolean; handledBy?: string; handledAt?: string;
+}
+export interface SlotNotice {
+  id: string; alertId: string; topic: string;         // what the message was about (an alert, or country+centre+hour)
+  to: string; toName: string;                         // team member id and name
+  channel: 'WhatsApp' | 'Copied';
+  status: 'Opened' | 'Sent' | 'Failed';               // "Opened" = the WhatsApp window was opened; staff confirm Sent or Failed
+  attempt: number; at: string; by: string;
+}
+export interface SlotAudit {
+  id: string; at: string; by: string;
+  area: 'Case' | 'Alert' | 'Release' | 'Result' | 'Notice' | 'Source' | 'Settings' | 'Data';
+  action: string; country: string; ref: string; detail: string;
+}
+export interface SlotConfig {
+  id: string; country: string;                        // one record per country; id = country
+  officialUrl: string;                                // the official notices / booking page the team checks
+  checkEveryHours: number;                            // how often someone must look at it
+  notify: string[];                                   // team member ids who are alerted first for this country
+  enabled: boolean;
+  lastCheckedAt: string; lastCheckedBy: string;
+}
+
 export interface GroupTour {
   id: string;
   tourCode: string;
@@ -448,6 +529,8 @@ export interface TeamMember {
   contractPdf: string;
   contractPdfName: string;
   isAdmin: boolean;
+  // Can open Slot Desk (and My Portal) and nothing else. Much narrower than isAdmin: no money, no pay, no other staff's records.
+  slotDesk?: boolean;
   bankName?: string;
   accountNo?: string;
   payItems?: { categoryId: string; amount: number }[];
@@ -620,6 +703,13 @@ export type Collections = {
   qcchecks: QcCheck[];
   messages: TeamMessage[];
   leadsources: LeadSource[];
+  slotwaiting: SlotRequest[];
+  slotreleases: SlotRelease[];
+  slotlog: SlotAttempt[];
+  slotalerts: SlotAlert[];
+  slotnotices: SlotNotice[];
+  slotaudit: SlotAudit[];
+  slotconfig: SlotConfig[];
 };
 
 export type CollectionName = keyof Collections;

@@ -8,7 +8,7 @@ const KNOWN_COLLECTIONS: (CollectionName | 'ceopin' | 'revenuegoal' | 'playbook'
   'leads', 'cases', 'appointments', 'team', 'transactions', 'campaigns',
   'attendance', 'ratecard', 'adjustments', 'bankaccounts', 'journalvouchers',
   'requests', 'activity', 'testimonials', 'referralagents', 'grouptours',
-  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances', 'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'qcchecks', 'messages', 'leadsources', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
+  'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials', 'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances', 'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters', 'qcchecks', 'messages', 'leadsources', 'slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig', 'ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl',
 ];
 const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 
@@ -18,7 +18,7 @@ const RAW_KEYS = ['ceopin', 'revenuegoal', 'playbook', 'sheetsyncurl'];
 const ADMIN_ONLY_COLLECTIONS = [
   'bankaccounts', 'loans', 'personalexpenses', 'referralagents',
   'clientfeedback', 'journalvouchers', 'ceopin', 'revenuegoal', 'monthlyclosings', 'payrollcategories', 'staffadvances',
-  'complaints', 'appraisals', 'docregister', 'letters', 'leadsources',
+  'complaints', 'appraisals', 'docregister', 'letters', 'leadsources', 'slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig',
 ];
 
 // Fields stripped from 'team' records before a non-admin ever sees them —
@@ -36,6 +36,19 @@ const TEAM_SENSITIVE_FIELDS = [
 function requireSession(req: NextRequest): Session | null {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   return verifySessionToken(token);
+}
+
+// Slot Desk lists. A staff member the Head Manager marked "Slot Desk only" may read and write exactly these, and nothing else that is admin-only.
+const SLOT_COLLECTIONS = ['slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig'];
+function isSlotOperator(session: Session): boolean {
+  if (session.type !== 'employee') return false;
+  const me = (readCollection('team') as TeamMember[]).find(t => t.id === session.staffId);
+  return !!me?.slotDesk;
+}
+/** True when this caller may NOT use this admin-only list. */
+function adminOnlyDenied(collection: string, admin: boolean, session: Session): boolean {
+  if (!ADMIN_ONLY_COLLECTIONS.includes(collection) || admin) return false;
+  return !(SLOT_COLLECTIONS.includes(collection) && isSlotOperator(session));
 }
 
 function isAdminSession(session: Session): boolean {
@@ -128,7 +141,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ coll
 
   const admin = isAdminSession(session);
 
-  if (ADMIN_ONLY_COLLECTIONS.includes(collection) && !admin) {
+  if (adminOnlyDenied(collection, admin, session)) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
@@ -190,7 +203,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ coll
 
   const admin = isAdminSession(session);
 
-  if (ADMIN_ONLY_COLLECTIONS.includes(collection) && !admin) {
+  if (adminOnlyDenied(collection, admin, session)) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
   // Salaries, PINs, and admin flags live here — only the CEO or someone

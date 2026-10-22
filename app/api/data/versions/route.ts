@@ -13,13 +13,15 @@ const LISTS = [
   'tourmembers', 'countrynotes', 'loans', 'personalexpenses', 'clientfeedback', 'marketingmaterials',
   'followuptemplates', 'invoices', 'monthlyclosings', 'payrollcategories', 'payruns', 'staffadvances',
   'complaints', 'stafftargets', 'appraisals', 'announcements', 'docregister', 'letters',
-  'messages', 'qcchecks', 'leadsources',
+  'messages', 'qcchecks', 'leadsources', 'slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig',
 ];
 const ADMIN_ONLY = [
   'bankaccounts', 'loans', 'personalexpenses', 'referralagents',
   'clientfeedback', 'journalvouchers', 'monthlyclosings', 'payrollcategories', 'staffadvances',
-  'complaints', 'appraisals', 'docregister', 'letters', 'leadsources',
+  'complaints', 'appraisals', 'docregister', 'letters', 'leadsources', 'slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig',
 ];
+
+const SLOT_LISTS = ['slotwaiting', 'slotreleases', 'slotlog', 'slotalerts', 'slotnotices', 'slotaudit', 'slotconfig'];
 
 export async function GET(req: NextRequest) {
   const session = verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value);
@@ -30,9 +32,11 @@ export async function GET(req: NextRequest) {
     const me = (readCollection('team') as TeamMember[]).find(t => t.id === ownId);
     admin = !!me?.isAdmin;
   }
+  let slotOperator = false;
+  if (!admin && session.type === 'employee') slotOperator = !!(readCollection('team') as TeamMember[]).find(t => t.id === session.staffId)?.slotDesk;
   const versions: Record<string, number> = {};
   for (const name of LISTS) {
-    if (!admin && ADMIN_ONLY.includes(name)) continue;
+    if (!admin && ADMIN_ONLY.includes(name) && !(slotOperator && SLOT_LISTS.includes(name))) continue;
     versions[name] = collectionVersion(name);
   }
   return NextResponse.json({ now: Date.now(), versions }, { headers: { 'Cache-Control': 'no-store' } });

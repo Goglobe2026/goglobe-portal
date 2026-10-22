@@ -18,6 +18,8 @@ export function Stamp({ text, className = '' }: { text: string; className?: stri
     passed: 'st-approved', failed: 'st-refused',
     alert: 'st-refused', watch: 'st-contacted', 'on-track': 'st-approved',
     'documentation-complete': 'st-approved', 'travel-confirmed': 'st-approved', cancelled: 'st-refused',
+    urgent: 'st-refused', normal: 'st-new', flexible: 'st-closed', waiting: 'st-contacted', booked: 'st-approved',
+    'got-slots': 'st-approved', 'not-open': 'st-closed',
   };
   const cls = map[key] || 'st-new';
   return (

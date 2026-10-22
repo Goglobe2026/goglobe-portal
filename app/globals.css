@@ -172,6 +172,7 @@ thead th {
 }
 tbody td { padding: 11px 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, white); vertical-align: middle; font-size: 13px; }
 tbody tr:last-child td { border-bottom: none; }
+.cells-top tbody td { vertical-align: top; }
 tbody tr { transition: background .12s; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 70%, white); }
 
